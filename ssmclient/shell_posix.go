@@ -1,3 +1,4 @@
+//go:build !windows && !js
 // +build !windows,!js
 
 package ssmclient
@@ -8,7 +9,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/mmmorris1975/ssm-session-client/datachannel"
+	"github.com/alexbacchin/ssm-session-client/datachannel"
 	"golang.org/x/sys/unix"
 )
 

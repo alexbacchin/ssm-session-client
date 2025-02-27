@@ -2,13 +2,14 @@ package ssmclient
 
 import (
 	"errors"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	"github.com/mmmorris1975/ssm-session-client/datachannel"
 	"io"
 	"log"
 	"os"
 	"strconv"
+
+	"github.com/alexbacchin/ssm-session-client/datachannel"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 // SSHSession starts a specialized port forwarding session to allow SSH connectivity to the target instance over

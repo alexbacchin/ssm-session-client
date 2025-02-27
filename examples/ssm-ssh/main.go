@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/mmmorris1975/ssm-session-client/ssmclient"
 	"log"
 	"net"
 	"os"
+
+	"github.com/alexbacchin/ssm-session-client/ssmclient"
+	"github.com/aws/aws-sdk-go-v2/config"
 )
 
 // Start a SSM SSH session.

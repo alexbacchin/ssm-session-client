@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/mmmorris1975/ssm-session-client/ssmclient"
 	"log"
 	"os"
+
+	"github.com/alexbacchin/ssm-session-client/ssmclient"
+	"github.com/aws/aws-sdk-go-v2/config"
 )
 
 // Start a SSM port forwarding session.
@@ -42,4 +43,5 @@ func main() {
 	// A 3rd argument can be passed to specify a command to run before turning the shell over to the user
 	// Alternatively, can be called as ssmclient.ShellPluginSession(cfg, tgt) to use the AWS-managed SSM session client code
 	log.Fatal(ssmclient.ShellSession(cfg, tgt))
+	//log.Fatal(ssmclient.ShellPluginSession(cfg, tgt))
 }
