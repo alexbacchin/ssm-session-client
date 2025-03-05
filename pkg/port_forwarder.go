@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 )
 
 // Start a SSM port forwarding session.
@@ -31,7 +31,7 @@ func StartSSMPortForwarder(target string) {
 		}
 	}
 
-	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithSharedConfigProfile(profile))
+	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(profile))
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/google/uuid"
@@ -475,14 +476,7 @@ func (c *SsmDataChannel) startSession(cfg aws.Config, in *ssm.StartSessionInput)
 	if err != nil {
 		return err
 	}
-	return c.StartSessionFromDataChannelURL(*out.StreamUrl, *out.TokenValue)
-}
-
-func (c *SsmDataChannel) startSessionWithCustomStreamEndpoint(cfg aws.Config, in *ssm.StartSessionInput, streamEndpoint *string) error {
-	out, err := ssm.NewFromConfig(cfg).StartSession(context.Background(), in)
-	if err != nil {
-		return err
-	}
+	config.StreamEndpointOverride(out)
 	return c.StartSessionFromDataChannelURL(*out.StreamUrl, *out.TokenValue)
 }
 

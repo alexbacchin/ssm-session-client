@@ -6,9 +6,10 @@ import (
 	"net"
 	"os"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
@@ -21,7 +22,8 @@ import (
 //   The target_spec parameter is required, and is in the form of ec2_instance_id[:port_number] (ex: i-deadbeef:2222)
 //   The port_number argument is optional, and if not provided the default SSH port (22) is used.
 
-func (c *Config) StartSSHSession(target string) {
+func StartSSHSession(target string) {
+	c := config.GetFlagsInstance()
 	if len(os.Args) < 1 {
 		log.Fatal("Usage: ssm-ssh target_spec")
 	}
@@ -33,17 +35,10 @@ func (c *Config) StartSSHSession(target string) {
 				SigningRegion: c.AWSRegion,
 			}, nil
 		}
-		if service == "ssmmessages" && region == c.AWSRegion {
-			return aws.Endpoint{
-				PartitionID:   "aws",
-				URL:           "wss://" + c.SSMMessagesVpcEndpoint,
-				SigningRegion: c.AWSRegion,
-			}, nil
-		}
 		// returning EndpointNotFoundError will allow the service to fallback to it's default resolution
 		return aws.Endpoint{}, &aws.EndpointNotFoundError{}
 	})
-	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithSharedConfigProfile(c.AWSProfile), config.WithEndpointResolverWithOptions(customResolver))
+	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(c.AWSProfile), awsconfig.WithEndpointResolverWithOptions(customResolver))
 	if err != nil {
 		log.Fatal(err)
 	}

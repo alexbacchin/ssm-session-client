@@ -9,7 +9,7 @@ import (
 
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect"
 )
 
@@ -31,7 +31,7 @@ import (
 //	  IdentityFile ~/.ssh/path_to_your_private_key
 //	  ProxyCommand ec2instance-connect %r@%h:%p
 //	  User ec2-user
-func (c *Config) StartEC2InstanceConnect(target string) {
+func StartEC2InstanceConnect(target string) {
 	var profile string
 
 	if v, ok := os.LookupEnv("AWS_PROFILE"); ok {
@@ -43,7 +43,7 @@ func (c *Config) StartEC2InstanceConnect(target string) {
 		}
 	}
 
-	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithSharedConfigProfile(profile))
+	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(profile))
 	if err != nil {
 		log.Fatal(err)
 	}

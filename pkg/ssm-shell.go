@@ -17,9 +17,8 @@ import (
 //
 //   The target parameter is the EC2 instance ID
 
-func StartSSMShell() {
+func StartSSMShell(target string) {
 	var profile string
-	target := os.Args[1]
 
 	if v, ok := os.LookupEnv("AWS_PROFILE"); ok {
 		profile = v

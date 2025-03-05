@@ -5,13 +5,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/alexbacchin/ssm-session-client/pkg"
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 var version = "0.0.1"
-var config pkg.Config
+var flags = config.GetFlagsInstance()
 var rootCmd = &cobra.Command{
 	Use:     "ssm-session-client",
 	Version: version,
@@ -22,11 +22,11 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cobra.OnInitialize(initConfig)
-	rootCmd.PersistentFlags().StringVar(&config.AWSProfile, "aws-profile", "", "AWS CLI Profile name for authentication")
-	rootCmd.PersistentFlags().StringVar(&config.AWSRegion, "aws-region", "ap-southeast-2", "AWS Region for the session")
-	rootCmd.PersistentFlags().StringVar(&config.EC2VpcEndpoint, "ec2-vpcendpoint", "", "VPC endpoint for EC2")
-	rootCmd.PersistentFlags().StringVar(&config.SSMVpcEndpoint, "ssm-vpcendpoint", "", "VPC endpoint for SSM")
-	rootCmd.PersistentFlags().StringVar(&config.SSMMessagesVpcEndpoint, "ssmmessages-vpcendpoint", "", "VPC endpoint for SSM messages")
+	rootCmd.PersistentFlags().StringVar(&flags.AWSProfile, "aws-profile", "", "AWS CLI Profile name for authentication")
+	rootCmd.PersistentFlags().StringVar(&flags.AWSRegion, "aws-region", "ap-southeast-2", "AWS Region for the session")
+	rootCmd.PersistentFlags().StringVar(&flags.EC2VpcEndpoint, "ec2-vpcendpoint", "", "VPC endpoint for EC2")
+	rootCmd.PersistentFlags().StringVar(&flags.SSMVpcEndpoint, "ssm-vpcendpoint", "", "VPC endpoint for SSM")
+	rootCmd.PersistentFlags().StringVar(&flags.SSMMessagesVpcEndpoint, "ssmmessages-vpcendpoint", "", "VPC endpoint for SSM messages")
 
 	viper.BindPFlag("aws-profile", rootCmd.PersistentFlags().Lookup("aws-profile"))
 	viper.BindPFlag("aws-region", rootCmd.PersistentFlags().Lookup("aws-profile"))
@@ -37,15 +37,15 @@ func init() {
 
 func initConfig() {
 	if profile, ok := os.LookupEnv("AWS_PROFILE"); ok {
-		config.AWSProfile = profile
+		flags.AWSProfile = profile
 	}
 
 	if region, ok := os.LookupEnv("AWS_DEFAULT_REGION"); ok {
-		config.AWSRegion = region
+		flags.AWSRegion = region
 	}
 
 	if region, ok := os.LookupEnv("AWS_REGION"); ok {
-		config.AWSRegion = region
+		flags.AWSRegion = region
 	}
 
 	viper.SetConfigName("config")
