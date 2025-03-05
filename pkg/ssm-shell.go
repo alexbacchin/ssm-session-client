@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 //
 //   The target parameter is the EC2 instance ID
 
-func main() {
+func StartSSMShell() {
 	var profile string
 	target := os.Args[1]
 

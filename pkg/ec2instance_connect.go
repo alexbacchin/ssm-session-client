@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"context"
@@ -31,9 +31,8 @@ import (
 //	  IdentityFile ~/.ssh/path_to_your_private_key
 //	  ProxyCommand ec2instance-connect %r@%h:%p
 //	  User ec2-user
-func main() {
+func (c *Config) StartEC2InstanceConnect(target string) {
 	var profile string
-	target := os.Args[1]
 
 	if v, ok := os.LookupEnv("AWS_PROFILE"); ok {
 		profile = v
