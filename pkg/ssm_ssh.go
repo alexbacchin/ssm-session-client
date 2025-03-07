@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net"
-	"os"
 
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
@@ -23,22 +22,18 @@ import (
 //   The port_number argument is optional, and if not provided the default SSH port (22) is used.
 
 func StartSSHSession(target string) {
-	c := config.GetFlagsInstance()
-	if len(os.Args) < 1 {
-		log.Fatal("Usage: ssm-ssh target_spec")
-	}
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-		if service == ssm.ServiceID && region == c.AWSRegion && c.SSMVpcEndpoint != "" {
+		if service == ssm.ServiceID && region == config.Flags().AWSRegion && config.Flags().SSMVpcEndpoint != "" {
 			return aws.Endpoint{
 				PartitionID:   "aws",
-				URL:           "https://" + c.SSMVpcEndpoint,
-				SigningRegion: c.AWSRegion,
+				URL:           "https://" + config.Flags().SSMVpcEndpoint,
+				SigningRegion: config.Flags().AWSRegion,
 			}, nil
 		}
 		// returning EndpointNotFoundError will allow the service to fallback to it's default resolution
 		return aws.Endpoint{}, &aws.EndpointNotFoundError{}
 	})
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(c.AWSProfile), awsconfig.WithEndpointResolverWithOptions(customResolver))
+	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(config.Flags().AWSProfile), awsconfig.WithEndpointResolverWithOptions(customResolver))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -65,5 +60,5 @@ func StartSSHSession(target string) {
 	}
 
 	// Alternatively, can be called as ssmclient.SSHPluginSession(cfg, tgt) to use the AWS-managed SSM session client code
-	log.Fatal(ssmclient.SSHSession(cfg, &in))
+	ssmclient.SSHSession(cfg, &in)
 }

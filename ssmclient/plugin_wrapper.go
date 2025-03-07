@@ -3,6 +3,7 @@ package ssmclient
 import (
 	"context"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/session-manager-plugin/src/datachannel"
@@ -23,6 +24,8 @@ func PluginSession(cfg aws.Config, input *ssm.StartSessionInput) error {
 	if err != nil {
 		return err
 	}
+
+	config.StreamEndpointOverride(out)
 
 	ssmSession := new(session.Session)
 	ssmSession.SessionId = *out.SessionId

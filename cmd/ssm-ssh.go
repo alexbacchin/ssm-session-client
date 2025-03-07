@@ -17,5 +17,6 @@ var ssmSshCmd = &cobra.Command{
 }
 
 func init() {
+
 	rootCmd.AddCommand(ssmSshCmd)
 }

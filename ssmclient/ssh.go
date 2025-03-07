@@ -83,6 +83,7 @@ func SSHPluginSession(cfg aws.Config, opts *PortForwardingInput) error {
 		Parameters: map[string][]string{
 			"portNumber": {port},
 		},
+		Reason: aws.String("ssm-session-client"),
 	}
 
 	return PluginSession(cfg, in)

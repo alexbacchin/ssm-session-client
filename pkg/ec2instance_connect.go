@@ -4,9 +4,10 @@ import (
 	"context"
 	"log"
 	"net"
-	"os"
+
 	"strings"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -31,28 +32,47 @@ import (
 //	  IdentityFile ~/.ssh/path_to_your_private_key
 //	  ProxyCommand ec2instance-connect %r@%h:%p
 //	  User ec2-user
-func StartEC2InstanceConnect(target string) {
-	var profile string
+func StartEC2InstanceConnect(target string) error {
+	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 
-	if v, ok := os.LookupEnv("AWS_PROFILE"); ok {
-		profile = v
-	} else {
-		if len(os.Args) > 2 {
-			profile = os.Args[1]
-			target = os.Args[2]
-		}
-	}
+		// if strings.Contains(service, ssm.ServiceID) && config.Flags().SSMVpcEndpoint != "" {
+		// 	log.Println(service, region)
+		// 	return aws.Endpoint{
+		// 		PartitionID:   "aws",
+		// 		URL:           "https://" + config.Flags().SSMVpcEndpoint,
+		// 		SigningRegion: config.Flags().AWSRegion,
+		// 	}, nil
+		// }
+		// if strings.Contains(service, ec2.ServiceID) && config.Flags().EC2VpcEndpoint != "" {
+		// 	return aws.Endpoint{
+		// 		PartitionID:   "aws",
+		// 		URL:           "https://" + config.Flags().EC2VpcEndpoint,
+		// 		SigningRegion: config.Flags().AWSRegion,
+		// 	}, nil
+		// }
+		// returning EndpointNotFoundError will allow the service to fallback to it's default resolution
 
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(profile))
+		return aws.Endpoint{}, &aws.EndpointNotFoundError{}
+	})
+	// Create Session
+
+	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(config.Flags().AWSProfile),
+		awsconfig.WithEndpointResolverWithOptions(customResolver),
+		awsconfig.WithClientLogMode(aws.LogRetries|aws.LogRequest),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	var port int
+	if !strings.Contains(target, "@") {
+		target = "ec2-user@" + target
+	}
 	userHost := strings.Split(target, "@")
-	log.Println(userHost)
-	//t, p, err := net.SplitHostPort(userHost[1])
-	t, p := userHost[1], "22"
+	if len(userHost) != 2 || !strings.Contains(userHost[1], ":") {
+		userHost[1] = userHost[1] + ":22"
+	}
+	t, p, err := net.SplitHostPort(userHost[1])
 
 	if err == nil {
 		port, err = net.LookupPort("tcp", p)
@@ -67,12 +87,17 @@ func StartEC2InstanceConnect(target string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println(userHost[0])
+
+	pubKey, err := config.FindSSHPublicKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	ec2i := ec2instanceconnect.NewFromConfig(cfg)
 	pubkeyIn := ec2instanceconnect.SendSSHPublicKeyInput{
 		InstanceId:     aws.String(tgt),
 		InstanceOSUser: aws.String(userHost[0]),
-		SSHPublicKey:   aws.String("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO64SNJawWnPRPKdcW2sHttwewfofiQLC2XgdTtfrI6v alexbacchin@outlook.com"), // FIXME - load your SSH public key here
+		SSHPublicKey:   aws.String(pubKey),
 	}
 	if _, err = ec2i.SendSSHPublicKey(context.Background(), &pubkeyIn); err != nil {
 		log.Fatal(err)
@@ -83,7 +108,9 @@ func StartEC2InstanceConnect(target string) {
 		RemotePort: port,
 	}
 
-	// Alternatively, can be called as ssmclient.SSHPluginSession(cfg, tgt) to use the AWS-managed SSM session client code
-	//log.Fatal(ssmclient.SSHSession(cfg, &in))
-	log.Fatal(ssmclient.SSHPluginSession(cfg, &in))
+	if config.Flags().UseSSMSessionPlugin {
+		return ssmclient.SSHPluginSession(cfg, &in)
+	}
+	return ssmclient.SSHSession(cfg, &in)
+
 }
