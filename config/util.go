@@ -49,6 +49,6 @@ func IsSSMSessionManagerPluginInstalled() bool {
 		log.Print("Session Manager Plugin is not installed.")
 		return false
 	}
-	log.Print("Session Manager Plugin found at", pluginPath)
+	log.Print("Session Manager Plugin found at: ", pluginPath)
 	return true
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/alexbacchin/ssm-session-client/config"
@@ -12,6 +13,7 @@ import (
 )
 
 var version = "0.0.1"
+var configFile string
 var rootCmd = &cobra.Command{
 	Use:     "ssm-session-client",
 	Version: version,
@@ -23,6 +25,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cobra.OnInitialize(initConfig)
+	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file (default is $HOME/.ssm-session-client.yaml)")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().AWSProfile, "aws-profile", "", "AWS CLI Profile name for authentication")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().AWSRegion, "aws-region", "ap-southeast-2", "AWS Region for the session")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().STSVpcEndpoint, "sts-endpoint", "", "VPC endpoint for STS")
@@ -33,7 +36,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&config.Flags().UseSSMSessionPlugin, "ssm-session-plugin", true, "Use AWS SSH Session Plugin to establish SSH session with advanced features, like encryption, compression, and session recording")
 
 	viper.BindPFlag("aws-profile", rootCmd.PersistentFlags().Lookup("aws-profile"))
-	viper.BindPFlag("aws-region", rootCmd.PersistentFlags().Lookup("aws-profile"))
+	viper.BindPFlag("aws-region", rootCmd.PersistentFlags().Lookup("aws-region"))
 	viper.BindPFlag("sts-endpoint", rootCmd.PersistentFlags().Lookup("sts-endpoint"))
 	viper.BindPFlag("ec2-endpoint", rootCmd.PersistentFlags().Lookup("ec2-endpoint"))
 	viper.BindPFlag("ssm-endpoint", rootCmd.PersistentFlags().Lookup("ssm-endpoint"))
@@ -46,7 +49,11 @@ func preRun(ccmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Fatalf("Unable to read Viper options into configuration: %v", err)
 	}
+	if !config.IsSSMSessionManagerPluginInstalled() {
+		config.Flags().UseSSMSessionPlugin = false
+	}
 	SetCustomEndpoints()
+
 }
 
 func initConfig() {
@@ -61,18 +68,31 @@ func initConfig() {
 	if region, ok := os.LookupEnv("AWS_REGION"); ok {
 		config.Flags().AWSRegion = region
 	}
-
-	viper.SetConfigName("config")
-	viper.AddConfigPath("./")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Panic(err)
+	}
+	ex, err := os.Executable()
+	if err != nil {
+		log.Panic(err)
+	}
+	viper.SetConfigName(".ssm-session-client")
+	viper.AddConfigPath(".")
+	viper.AddConfigPath(homeDir)
+	viper.AddConfigPath(filepath.Dir(ex))
 	viper.SetEnvPrefix("SSM_SESSION_CLIENT")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
+	if configFile != "" {
+		viper.SetConfigFile(configFile)
+	}
+
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Println("config.yaml file not found", err)
+		log.Println("Cannot load config: ", err)
+	} else {
+		log.Println("Using config file:", viper.ConfigFileUsed())
 	}
-	if !config.IsSSMSessionManagerPluginInstalled() {
-		config.Flags().UseSSMSessionPlugin = false
-	}
+
 }
 
 func SetCustomEndpoints() {

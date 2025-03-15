@@ -24,4 +24,5 @@ vendor/
 *.lock
 
 # compiled examples
+.ssm-session-client.yaml
 config.yaml
