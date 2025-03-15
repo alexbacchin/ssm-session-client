@@ -1,12 +1,10 @@
 package pkg
 
 import (
-	"context"
 	"log"
-	"os"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
-	"github.com/aws/aws-sdk-go-v2/config"
 )
 
 // Start a SSM port forwarding session.
@@ -17,30 +15,24 @@ import (
 //
 //   The target parameter is the EC2 instance ID
 
-func StartSSMShell(target string) {
-	var profile string
+func StartSSMShell(target string) error {
 
-	if v, ok := os.LookupEnv("AWS_PROFILE"); ok {
-		profile = v
-	} else {
-		if len(os.Args) > 2 {
-			profile = os.Args[1]
-			target = os.Args[2]
-		}
+	ssmcfg, err := BuildAWSConfig("ssm")
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithSharedConfigProfile(profile))
+	tgt, err := ssmclient.ResolveTarget(target, ssmcfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	tgt, err := ssmclient.ResolveTarget(target, cfg)
+	ssmMessagesCfg, err := BuildAWSConfig("ssmmessages")
 	if err != nil {
 		log.Fatal(err)
 	}
+	if config.Flags().UseSSMSessionPlugin {
+		return ssmclient.ShellPluginSession(ssmMessagesCfg, tgt)
+	}
+	return ssmclient.ShellSession(ssmMessagesCfg, tgt)
 
-	// A 3rd argument can be passed to specify a command to run before turning the shell over to the user
-	// Alternatively, can be called as ssmclient.ShellPluginSession(cfg, tgt) to use the AWS-managed SSM session client code
-	log.Fatal(ssmclient.ShellSession(cfg, tgt))
-	//log.Fatal(ssmclient.ShellPluginSession(cfg, tgt))
 }

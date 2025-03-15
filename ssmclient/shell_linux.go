@@ -1,10 +1,12 @@
+//go:build linux
 // +build linux
 
 package ssmclient
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
+
+	"golang.org/x/sys/unix"
 )
 
 func cleanup() error {
@@ -17,7 +19,7 @@ func cleanup() error {
 
 // see also: https://godoc.org/golang.org/x/crypto/ssh/terminal#MakeRaw.
 func configureStdin() (err error) {
-	origTermios, err = unix.IoctlGetTermios(int(os.Stdin.Fd()), unix.TCGETS)
+	origTermios, err = unix.IoctlGetTermios(int(os.Stdin.Fd()), unix.TCSETSF)
 	if err != nil {
 		return err
 	}

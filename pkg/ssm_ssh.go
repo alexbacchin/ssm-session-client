@@ -1,15 +1,12 @@
 package pkg
 
 import (
-	"context"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 // Start a SSM SSH session.
@@ -21,25 +18,18 @@ import (
 //   The target_spec parameter is required, and is in the form of ec2_instance_id[:port_number] (ex: i-deadbeef:2222)
 //   The port_number argument is optional, and if not provided the default SSH port (22) is used.
 
-func StartSSHSession(target string) {
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-		if service == ssm.ServiceID && region == config.Flags().AWSRegion && config.Flags().SSMVpcEndpoint != "" {
-			return aws.Endpoint{
-				PartitionID:   "aws",
-				URL:           "https://" + config.Flags().SSMVpcEndpoint,
-				SigningRegion: config.Flags().AWSRegion,
-			}, nil
-		}
-		// returning EndpointNotFoundError will allow the service to fallback to it's default resolution
-		return aws.Endpoint{}, &aws.EndpointNotFoundError{}
-	})
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(config.Flags().AWSProfile), awsconfig.WithEndpointResolverWithOptions(customResolver))
-	if err != nil {
-		log.Fatal(err)
-	}
+func StartSSHSession(target string) error {
 
 	var port int
-	t, p, err := net.SplitHostPort(target)
+	if !strings.Contains(target, "@") {
+		target = "ec2-user@" + target
+	}
+	userHost := strings.Split(target, "@")
+	if len(userHost) != 2 || !strings.Contains(userHost[1], ":") {
+		userHost[1] = userHost[1] + ":22"
+	}
+	t, p, err := net.SplitHostPort(userHost[1])
+
 	if err == nil {
 		port, err = net.LookupPort("tcp", p)
 		if err != nil {
@@ -48,8 +38,11 @@ func StartSSHSession(target string) {
 	} else {
 		t = target
 	}
-
-	tgt, err := ssmclient.ResolveTarget(t, cfg)
+	ssmcfg, err := BuildAWSConfig("ssm")
+	if err != nil {
+		log.Fatal(err)
+	}
+	tgt, err := ssmclient.ResolveTarget(t, ssmcfg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -58,7 +51,12 @@ func StartSSHSession(target string) {
 		Target:     tgt,
 		RemotePort: port,
 	}
-
-	// Alternatively, can be called as ssmclient.SSHPluginSession(cfg, tgt) to use the AWS-managed SSM session client code
-	ssmclient.SSHSession(cfg, &in)
+	ssmMessagesCfg, err := BuildAWSConfig("ssmmessages")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if config.Flags().UseSSMSessionPlugin {
+		return ssmclient.SSHPluginSession(ssmMessagesCfg, &in)
+	}
+	return ssmclient.SSHSession(ssmMessagesCfg, &in)
 }

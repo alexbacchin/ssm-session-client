@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/datachannel"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -17,7 +18,9 @@ import (
 // instance before handing control of the terminal to the user.
 func ShellSession(cfg aws.Config, target string, initCmd ...io.Reader) error {
 	c := new(datachannel.SsmDataChannel)
-	if err := c.Open(cfg, &ssm.StartSessionInput{Target: aws.String(target)}); err != nil {
+	if err := c.Open(cfg, &ssm.StartSessionInput{Target: aws.String(target)}, &datachannel.SSMMessagesResover{
+		Endpoint: config.Flags().SSMMessagesVpcEndpoint,
+	}); err != nil {
 		return err
 	}
 	defer c.Close()

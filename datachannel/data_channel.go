@@ -10,11 +10,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/google/uuid"
@@ -23,7 +23,7 @@ import (
 
 // DataChannel is the interface definition for handling communication with the AWS SSM messaging service.
 type DataChannel interface {
-	Open(aws.Config, *ssm.StartSessionInput) error
+	Open(aws.Config, *ssm.StartSessionInput, *SSMMessagesResover) error
 	HandleMsg(data []byte) ([]byte, error)
 	SetTerminalSize(rows, cols uint32) error
 	TerminateSession() error
@@ -50,15 +50,31 @@ type SsmDataChannel struct {
 	lastCols    uint32
 }
 
+func StreamEndpointOverride(resolver *SSMMessagesResover, output *ssm.StartSessionOutput) error {
+	//get the endpoint from the config
+
+	if resolver.Endpoint != "" {
+		//replace the hostname part of the stream url with the vpc endpoint
+		parsedUrl, err := url.Parse(*output.StreamUrl)
+		if err != nil {
+			return err
+		}
+		parsedUrl.Host = resolver.Endpoint
+		newStreamUrl := parsedUrl.String()
+		output.StreamUrl = &newStreamUrl
+	}
+	return nil
+}
+
 // Open creates the web socket connection with the AWS service and opens the data channel.
-func (c *SsmDataChannel) Open(cfg aws.Config, in *ssm.StartSessionInput) error {
+func (c *SsmDataChannel) Open(cfg aws.Config, in *ssm.StartSessionInput, resolver *SSMMessagesResover) error {
 	c.handshakeCh = make(chan bool, 1)
 	c.outMsgBuf = NewMessageBuffer(50)
 	c.inMsgBuf = NewMessageBuffer(50)
 
 	go c.processOutboundQueue()
 
-	return c.startSession(cfg, in)
+	return c.startSession(cfg, in, resolver)
 }
 
 // Close shuts down the web socket connection with the AWS service. Type-specific actions (like sending
@@ -471,12 +487,12 @@ func (c *SsmDataChannel) processHandshakeRequest(msg *AgentMessage) error {
 	return err
 }
 
-func (c *SsmDataChannel) startSession(cfg aws.Config, in *ssm.StartSessionInput) error {
+func (c *SsmDataChannel) startSession(cfg aws.Config, in *ssm.StartSessionInput, resolver *SSMMessagesResover) error {
 	out, err := ssm.NewFromConfig(cfg).StartSession(context.Background(), in)
 	if err != nil {
 		return err
 	}
-	config.StreamEndpointOverride(out)
+	StreamEndpointOverride(resolver, out)
 	return c.StartSessionFromDataChannelURL(*out.StreamUrl, *out.TokenValue)
 }
 

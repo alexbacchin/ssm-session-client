@@ -1,0 +1,20 @@
+package cmd
+
+import (
+	"github.com/alexbacchin/ssm-session-client/pkg"
+	"github.com/spf13/cobra"
+)
+
+var ssmShellCmd = &cobra.Command{
+	Use:   "shell [instance id]",
+	Short: "Start a SSM Shell Session",
+	Long:  `Start a SSM SesShellsion via AWS SSM Session Manager`,
+	Args:  cobra.MatchAll(cobra.MinimumNArgs(1), cobra.OnlyValidArgs),
+	Run: func(cmd *cobra.Command, args []string) {
+		pkg.StartSSMShell(args[0])
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(ssmShellCmd)
+}

@@ -10,7 +10,6 @@ import (
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect"
 )
 
@@ -33,36 +32,6 @@ import (
 //	  ProxyCommand ec2instance-connect %r@%h:%p
 //	  User ec2-user
 func StartEC2InstanceConnect(target string) error {
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-
-		// if strings.Contains(service, ssm.ServiceID) && config.Flags().SSMVpcEndpoint != "" {
-		// 	log.Println(service, region)
-		// 	return aws.Endpoint{
-		// 		PartitionID:   "aws",
-		// 		URL:           "https://" + config.Flags().SSMVpcEndpoint,
-		// 		SigningRegion: config.Flags().AWSRegion,
-		// 	}, nil
-		// }
-		// if strings.Contains(service, ec2.ServiceID) && config.Flags().EC2VpcEndpoint != "" {
-		// 	return aws.Endpoint{
-		// 		PartitionID:   "aws",
-		// 		URL:           "https://" + config.Flags().EC2VpcEndpoint,
-		// 		SigningRegion: config.Flags().AWSRegion,
-		// 	}, nil
-		// }
-		// returning EndpointNotFoundError will allow the service to fallback to it's default resolution
-
-		return aws.Endpoint{}, &aws.EndpointNotFoundError{}
-	})
-	// Create Session
-
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(config.Flags().AWSProfile),
-		awsconfig.WithEndpointResolverWithOptions(customResolver),
-		awsconfig.WithClientLogMode(aws.LogRetries|aws.LogRequest),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	var port int
 	if !strings.Contains(target, "@") {
@@ -82,8 +51,11 @@ func StartEC2InstanceConnect(target string) error {
 	} else {
 		t = target
 	}
-
-	tgt, err := ssmclient.ResolveTarget(t, cfg)
+	ssmcfg, err := BuildAWSConfig("ssm")
+	if err != nil {
+		log.Fatal(err)
+	}
+	tgt, err := ssmclient.ResolveTarget(t, ssmcfg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -93,7 +65,12 @@ func StartEC2InstanceConnect(target string) error {
 		log.Fatal(err)
 	}
 
-	ec2i := ec2instanceconnect.NewFromConfig(cfg)
+	ec2iccfg, err := BuildAWSConfig("ec2ic")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ec2i := ec2instanceconnect.NewFromConfig(ec2iccfg)
 	pubkeyIn := ec2instanceconnect.SendSSHPublicKeyInput{
 		InstanceId:     aws.String(tgt),
 		InstanceOSUser: aws.String(userHost[0]),
@@ -107,10 +84,13 @@ func StartEC2InstanceConnect(target string) error {
 		Target:     tgt,
 		RemotePort: port,
 	}
-
-	if config.Flags().UseSSMSessionPlugin {
-		return ssmclient.SSHPluginSession(cfg, &in)
+	ssmMessagesCfg, err := BuildAWSConfig("ssm")
+	if err != nil {
+		log.Fatal(err)
 	}
-	return ssmclient.SSHSession(cfg, &in)
+	if config.Flags().UseSSMSessionPlugin {
+		return ssmclient.SSHPluginSession(ssmMessagesCfg, &in)
+	}
+	return ssmclient.SSHSession(ssmMessagesCfg, &in)
 
 }

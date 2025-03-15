@@ -1,14 +1,12 @@
 package pkg
 
 import (
-	"context"
 	"log"
 	"net"
-	"os"
 	"strings"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 )
 
 // Start a SSM port forwarding session.
@@ -19,32 +17,26 @@ import (
 //
 //   The target_spec parameter is required, and is in the form of ec2_instance_id:port_number (ex: i-deadbeef:80)
 
-func StartSSMPortForwarder(target string) {
-	var profile string
-
-	if v, ok := os.LookupEnv("AWS_PROFILE"); ok {
-		profile = v
-	} else {
-		if len(os.Args) > 2 {
-			profile = os.Args[1]
-			target = os.Args[2]
-		}
-	}
-
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithSharedConfigProfile(profile))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	parts := strings.Split(target, `:`)
-
-	tgt, err := ssmclient.ResolveTarget(strings.Join(parts[:len(parts)-1], `:`), cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+func StartSSMPortForwarder(target string, sourcePort int) error {
 	var port int
-	port, err = net.LookupPort("tcp", parts[len(parts)-1]) // SSM port forwarding only supports TCP (afaik)
+	if !strings.Contains(target, ":") {
+		target = target + ":22"
+	}
+	t, p, err := net.SplitHostPort(target)
+
+	if err == nil {
+		port, err = net.LookupPort("tcp", p)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		t = target
+	}
+	ssmcfg, err := BuildAWSConfig("ssm")
+	if err != nil {
+		log.Fatal(err)
+	}
+	tgt, err := ssmclient.ResolveTarget(t, ssmcfg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -52,9 +44,15 @@ func StartSSMPortForwarder(target string) {
 	in := ssmclient.PortForwardingInput{
 		Target:     tgt,
 		RemotePort: port,
-		LocalPort:  0, // just use random port for demo purposes (this is the default, if not set > 0)
+		LocalPort:  sourcePort,
 	}
+	ssmMessagesCfg, err := BuildAWSConfig("ssmmessages")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if config.Flags().UseSSMSessionPlugin {
+		return ssmclient.PortPluginSession(ssmMessagesCfg, &in)
+	}
+	return ssmclient.PortForwardingSession(ssmMessagesCfg, &in)
 
-	// Alternatively, can be called as ssmclient.PluginSession(cfg, tgt) to use the AWS-managed SSM session client code
-	log.Fatal(ssmclient.PortForwardingSession(cfg, &in))
 }

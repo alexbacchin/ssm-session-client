@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"syscall"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/datachannel"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -153,7 +154,9 @@ func openDataChannel(cfg aws.Config, opts *PortForwardingInput) (*datachannel.Ss
 	}
 
 	c := new(datachannel.SsmDataChannel)
-	if err := c.Open(cfg, in); err != nil {
+	if err := c.Open(cfg, in, &datachannel.SSMMessagesResover{
+		Endpoint: config.Flags().SSMMessagesVpcEndpoint,
+	}); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -192,7 +195,7 @@ func messageChannel(c datachannel.DataChannel, errCh chan error) chan []byte {
 }
 
 func createListener(port int) (net.Listener, error) {
-	l, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
+	l, err := net.Listen("tcp", net.JoinHostPort("localhost", strconv.Itoa(port)))
 	if err != nil {
 		return nil, err
 	}

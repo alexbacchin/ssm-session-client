@@ -125,3 +125,7 @@ type ChannelClosedPayload struct {
 	CreatedDate   string
 	Output        string
 }
+
+type SSMMessagesResover struct {
+	Endpoint string
+}

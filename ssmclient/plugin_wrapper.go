@@ -2,6 +2,7 @@ package ssmclient
 
 import (
 	"context"
+	"net/url"
 
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,8 +26,16 @@ func PluginSession(cfg aws.Config, input *ssm.StartSessionInput) error {
 		return err
 	}
 
-	config.StreamEndpointOverride(out)
-
+	if config.Flags().SSMMessagesVpcEndpoint != "" {
+		//replace the hostname part of the stream url with the vpc endpoint
+		parsedUrl, err := url.Parse(*out.StreamUrl)
+		if err != nil {
+			return err
+		}
+		parsedUrl.Host = config.Flags().SSMMessagesVpcEndpoint
+		newStreamUrl := parsedUrl.String()
+		out.StreamUrl = &newStreamUrl
+	}
 	ssmSession := new(session.Session)
 	ssmSession.SessionId = *out.SessionId
 	ssmSession.StreamUrl = *out.StreamUrl

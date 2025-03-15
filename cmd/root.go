@@ -29,6 +29,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&config.Flags().EC2VpcEndpoint, "ec2-endpoint", "", "VPC endpoint for EC2")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().SSMVpcEndpoint, "ssm-endpoint", "", "VPC endpoint for SSM")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().SSMMessagesVpcEndpoint, "ssmmessages-endpoint", "", "VPC endpoint for SSM messages")
+	rootCmd.PersistentFlags().StringVar(&config.Flags().ProxyURL, "proxy-url", "", "proxy server to use for the connections")
 	rootCmd.PersistentFlags().BoolVar(&config.Flags().UseSSMSessionPlugin, "ssm-session-plugin", true, "Use AWS SSH Session Plugin to establish SSH session with advanced features, like encryption, compression, and session recording")
 
 	viper.BindPFlag("aws-profile", rootCmd.PersistentFlags().Lookup("aws-profile"))
@@ -45,6 +46,7 @@ func preRun(ccmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Fatalf("Unable to read Viper options into configuration: %v", err)
 	}
+	SetCustomEndpoints()
 }
 
 func initConfig() {
@@ -70,6 +72,21 @@ func initConfig() {
 	}
 	if !config.IsSSMSessionManagerPluginInstalled() {
 		config.Flags().UseSSMSessionPlugin = false
+	}
+}
+
+func SetCustomEndpoints() {
+	if config.Flags().STSVpcEndpoint != "" {
+		os.Setenv("AWS_ENDPOINT_URL_STS", "https://"+config.Flags().STSVpcEndpoint)
+		log.Println("Setting STS endpoint to", os.Getenv("AWS_ENDPOINT_URL_STS"))
+	}
+	if config.Flags().SSMVpcEndpoint != "" {
+		os.Setenv("AWS_ENDPOINT_URL_SSM", "https://"+config.Flags().SSMVpcEndpoint)
+		log.Println("Setting SSM endpoint to", os.Getenv("AWS_ENDPOINT_URL_SSM"))
+	}
+	if config.Flags().EC2VpcEndpoint != "" {
+		os.Setenv("AWS_ENDPOINT_URL_EC2", "https://"+config.Flags().EC2VpcEndpoint)
+		log.Println("Setting EC2 endpoint to", os.Getenv("AWS_ENDPOINT_URL_EC2"))
 	}
 }
 

@@ -3,29 +3,10 @@ package config
 import (
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
-
-func StreamEndpointOverride(output *ssm.StartSessionOutput) error {
-	//get the endpoint from the config
-
-	if singleFlags.SSMMessagesVpcEndpoint != "" {
-		//replace the hostname part of the stream url with the vpc endpoint
-		parsedUrl, err := url.Parse(*output.StreamUrl)
-		if err != nil {
-			return err
-		}
-		parsedUrl.Host = singleFlags.SSMMessagesVpcEndpoint
-		newStreamUrl := parsedUrl.String()
-		output.StreamUrl = &newStreamUrl
-	}
-	return nil
-}
 
 func FindSSHPublicKey() (string, error) {
 	var pubKeyPath string

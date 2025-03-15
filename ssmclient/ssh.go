@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/datachannel"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -32,7 +33,9 @@ func SSHSession(cfg aws.Config, opts *PortForwardingInput) error {
 	}
 
 	c := new(datachannel.SsmDataChannel)
-	if err := c.Open(cfg, in); err != nil {
+	if err := c.Open(cfg, in, &datachannel.SSMMessagesResover{
+		Endpoint: config.Flags().SSMMessagesVpcEndpoint,
+	}); err != nil {
 		return err
 	}
 	defer func() {
