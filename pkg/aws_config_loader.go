@@ -32,7 +32,7 @@ func BuildAWSConfig(service string) (aws.Config, error) {
 
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background(),
 		awsconfig.WithSharedConfigProfile(config.Flags().AWSProfile),
-		awsconfig.WithClientLogMode(aws.LogRetries|aws.LogRequest),
+		//awsconfig.WithClientLogMode(aws.LogRetries|aws.LogRequest),
 	)
 	if err != nil {
 		return aws.Config{}, err
