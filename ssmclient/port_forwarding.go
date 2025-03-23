@@ -138,6 +138,7 @@ func PortPluginSession(cfg aws.Config, opts *PortForwardingInput) error {
 		DocumentName: aws.String(documentName),
 		Target:       aws.String(opts.Target),
 		Parameters:   parameters,
+		Reason:       aws.String("ssm-session-client"),
 	}
 
 	return PluginSession(cfg, in)

@@ -6,7 +6,7 @@ import (
 )
 
 var ssmShellCmd = &cobra.Command{
-	Use:   "shell [instance id]",
+	Use:   "shell [target]",
 	Short: "Start a SSM Shell Session",
 	Long:  `Start a SSM SesShellsion via AWS SSM Session Manager`,
 	Args:  cobra.MatchAll(cobra.MinimumNArgs(1), cobra.OnlyValidArgs),
