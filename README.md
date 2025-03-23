@@ -8,7 +8,7 @@ This project is a fork of [ssm-session-client](https://github.com/mmmorris1975/s
 
 The main goal of this project is to enable SSM Client in complex environments where AWS Services endpoints (PrivateLink) are accessible from private networks via VPN or Direct Connect.
 
-When the SSM `StartSession` is called, the API will return the [StreamUrl](https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_StartSession.html#API_StartSession_ResponseSyntax) with the regional SSM Messages endpoint. Even if SSM Messages endpoint is reachable in a private network, the only options to use it are HTTPS proxy or [DNS RPZ](https://dnsrpz.info/). For this reason, this app has a flag to set the SSM Messages endpoint, then it will replace the StreamUrl with your SSM Messages endpoint.
+When the SSM `StartSession` is called, the API will always return the [StreamUrl](https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_StartSession.html#API_StartSession_ResponseSyntax) with the regional SSM Messages endpoint. Even if when a SSM Messages endpoint PrivateLink is reachable in a private network, the only options to use it for session streams are HTTPS proxy or [DNS RPZ](https://dnsrpz.info/). For this reason, this app has a flag to set the SSM Messages endpoint, then it will replace the StreamUrl with your SSM Messages endpoint.
 
 **Note**: [Windows SSH Client](https://learn.microsoft.com/en-us/windows/terminal/tutorials/ssh#access-windows-ssh-client-and-ssh-server) is not installed by default.
 
