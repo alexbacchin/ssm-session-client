@@ -84,7 +84,7 @@ func StartEC2InstanceConnect(target string) error {
 		Target:     tgt,
 		RemotePort: port,
 	}
-	ssmMessagesCfg, err := BuildAWSConfig("ssm")
+	ssmMessagesCfg, err := BuildAWSConfig("ssmmessages")
 	if err != nil {
 		log.Fatal(err)
 	}

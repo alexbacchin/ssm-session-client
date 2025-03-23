@@ -223,10 +223,8 @@ func (r *EC2Resolver) Resolve(filter ...types.Filter) (string, error) {
 			if len(res.Instances) > 1 {
 				log.Print("WARNING: more than 1 instance found, using 1st value")
 			}
-
 			return *res.Instances[0].InstanceId, nil
 		}
 	}
-
 	return "", ErrNoInstanceFound
 }

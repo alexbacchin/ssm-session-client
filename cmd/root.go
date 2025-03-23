@@ -27,7 +27,7 @@ func init() {
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file (default is $HOME/.ssm-session-client.yaml)")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().AWSProfile, "aws-profile", "", "AWS CLI Profile name for authentication")
-	rootCmd.PersistentFlags().StringVar(&config.Flags().AWSRegion, "aws-region", "ap-southeast-2", "AWS Region for the session")
+	rootCmd.PersistentFlags().StringVar(&config.Flags().AWSRegion, "aws-region", "", "AWS Region for the session")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().STSVpcEndpoint, "sts-endpoint", "", "VPC endpoint for STS")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().EC2VpcEndpoint, "ec2-endpoint", "", "VPC endpoint for EC2")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().SSMVpcEndpoint, "ssm-endpoint", "", "VPC endpoint for SSM")
@@ -44,19 +44,15 @@ func init() {
 	viper.BindPFlag("ssm-session-plugin", rootCmd.PersistentFlags().Lookup("ssm-session-plugin"))
 
 }
+
+// preRun is a Cobra pre-run function that is called before the command is executed
+// It reads the configuration from the Viper configuration and sets the environment variables
+// for the AWS SDK to use the VPC endpoints if they are set.
 func preRun(ccmd *cobra.Command, args []string) {
 	err := viper.Unmarshal(config.Flags())
 	if err != nil {
 		log.Fatalf("Unable to read Viper options into configuration: %v", err)
 	}
-	if !config.IsSSMSessionManagerPluginInstalled() {
-		config.Flags().UseSSMSessionPlugin = false
-	}
-	SetCustomEndpoints()
-
-}
-
-func initConfig() {
 	if profile, ok := os.LookupEnv("AWS_PROFILE"); ok {
 		config.Flags().AWSProfile = profile
 	}
@@ -68,6 +64,29 @@ func initConfig() {
 	if region, ok := os.LookupEnv("AWS_REGION"); ok {
 		config.Flags().AWSRegion = region
 	}
+	if config.Flags().AWSRegion == "" {
+		log.Fatal("AWS Region is not set")
+		return
+	}
+	if !config.IsSSMSessionManagerPluginInstalled() {
+		config.Flags().UseSSMSessionPlugin = false
+	}
+	if _, ok := os.LookupEnv("AWS_ENDPOINT_URL_STS"); !ok && config.Flags().STSVpcEndpoint != "" {
+		os.Setenv("AWS_ENDPOINT_URL_STS", "https://"+config.Flags().STSVpcEndpoint)
+		log.Println("Setting STS endpoint to:", os.Getenv("AWS_ENDPOINT_URL_STS"))
+	}
+	if _, ok := os.LookupEnv("AWS_ENDPOINT_URL_SSM"); !ok && config.Flags().SSMVpcEndpoint != "" {
+		os.Setenv("AWS_ENDPOINT_URL_SSM", "https://"+config.Flags().SSMVpcEndpoint)
+		log.Println("Setting SSM endpoint to:", os.Getenv("AWS_ENDPOINT_URL_SSM"))
+	}
+	if _, ok := os.LookupEnv("AWS_ENDPOINT_URL_EC2"); !ok && config.Flags().EC2VpcEndpoint != "" {
+		os.Setenv("AWS_ENDPOINT_URL_EC2", "https://"+config.Flags().EC2VpcEndpoint)
+		log.Println("Setting EC2 endpoint to:", os.Getenv("AWS_ENDPOINT_URL_EC2"))
+	}
+}
+
+// / initConfig reads in config file and ENV variables if set.
+func initConfig() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		log.Panic(err)
@@ -80,7 +99,7 @@ func initConfig() {
 	viper.AddConfigPath(".")
 	viper.AddConfigPath(homeDir)
 	viper.AddConfigPath(filepath.Dir(ex))
-	viper.SetEnvPrefix("SSM_SESSION_CLIENT")
+	viper.SetEnvPrefix("SSC")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
 	if configFile != "" {
@@ -95,21 +114,7 @@ func initConfig() {
 
 }
 
-func SetCustomEndpoints() {
-	if config.Flags().STSVpcEndpoint != "" {
-		os.Setenv("AWS_ENDPOINT_URL_STS", "https://"+config.Flags().STSVpcEndpoint)
-		log.Println("Setting STS endpoint to", os.Getenv("AWS_ENDPOINT_URL_STS"))
-	}
-	if config.Flags().SSMVpcEndpoint != "" {
-		os.Setenv("AWS_ENDPOINT_URL_SSM", "https://"+config.Flags().SSMVpcEndpoint)
-		log.Println("Setting SSM endpoint to", os.Getenv("AWS_ENDPOINT_URL_SSM"))
-	}
-	if config.Flags().EC2VpcEndpoint != "" {
-		os.Setenv("AWS_ENDPOINT_URL_EC2", "https://"+config.Flags().EC2VpcEndpoint)
-		log.Println("Setting EC2 endpoint to", os.Getenv("AWS_ENDPOINT_URL_EC2"))
-	}
-}
-
+// Execute is the entry point for the CLI
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

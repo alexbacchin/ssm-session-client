@@ -9,7 +9,7 @@ import (
 )
 
 var portForwardingCmd = &cobra.Command{
-	Use:   "port-forwarding [instance id] [source port]",
+	Use:   "port-forwarding [target:destination port] [source port]",
 	Short: "Start a Port Forwarding Shell Session",
 	Long:  `Start a Port Forwarding via AWS SSM Session Manager`,
 	Args:  cobra.MatchAll(cobra.MinimumNArgs(1), cobra.OnlyValidArgs),
