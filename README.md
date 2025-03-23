@@ -1,48 +1,54 @@
 # SSM Session Client CLI
 
-This is a fork from [ssm-session-client](https://github.com/mmmorris1975/ssm-session-client) with some CLI and additional functionality to connect to AWS SSM sessions.  The goal of this utility is to provide a single executable to provide SSM Session functionality. This is an alternative for restricted environments where the AWS CLI execution is restricted.
+This project is a fork of [ssm-session-client](https://github.com/mmmorris1975/ssm-session-client) with added CLI functionality to connect to AWS SSM sessions. The goal is to provide a single executable for SSM Session functionality, especially useful in environments where AWS CLI execution is restricted. Such as:
 
-The main goal for this project is to enable SSM Client on complex environments where AWS Services endpoints (PrivateLink) are reachable from private networks via VPN or Direct Connects.
+- Microsoft AppLocker
+- AirLock
+- Manage Engine
+
+The main goal of this project is to enable SSM Client in complex environments where AWS Services endpoints (PrivateLink) are accessible from private networks via VPN or Direct Connect.
 
 When the SSM `StartSession` is called, the API will return the [StreamUrl](https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_StartSession.html#API_StartSession_ResponseSyntax) with the regional SSM Messages endpoint. Even if SSM Messages endpoint is reachable in a private network, the only options to use it are HTTPS proxy or [DNS RPZ](https://dnsrpz.info/). For this reason, this app has a flag to set the SSM Messages endpoint, then it will replace the StreamUrl with your SSM Messages endpoint.
 
+**Note**: [Windows SSH Client](https://learn.microsoft.com/en-us/windows/terminal/tutorials/ssh#access-windows-ssh-client-and-ssh-server) is not installed by default.
+
 ## Requirements
 
-1) Copy the executable from [Releases](https://github.com/alexbacchin/ssm-session-client/releases) to the target operating system
-2) (Optional) Install [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) recommended. When installed it will be used by default.
+1. Download the executable from [Releases](https://github.com/alexbacchin/ssm-session-client/releases) and copy it to the target operating system.
+2. (Optional) Install the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html). It is recommended and will be used by default if installed.
 
 ## Configuration
 
 First, follow the standard [configure AWS SDK and Tools](https://docs.aws.amazon.com/sdkref/latest/guide/creds-config-files.html) to provide AWS credentials.
 
-The utility configuration can set via:
+The utility can be configured via:
 
-1. Configuration file. Default `$HOME/.ssm-session-client.yaml` or will be searched at the following:
-  a. current folder
-  b. users home folder
-  c. applicaiton folder
-2. Environment Variables with `SCC_` prefix
-3. Command Line paramenters
+1. Configuration file: Default is `$HOME/.ssm-session-client.yaml`. It will also search in:
+   a. Current folder
+   b. User's home folder
+   c. Application folder
+2. Environment Variables with the `SCC_` prefix
+3. Command Line parameters
 
 These are the configuration options:
 
-| Description       | App Config/Flag | App Env Variable | AWS SDK Variable |
-| :---------------- | :------: | ----: | ----: |
-| Config File Path |   config   |  SCC_CONFIG | n/a |
-| AWS SDK profile name  |   aws-profile   | SCC_AWS_PROFILE | AWS_PROFILE |
-| AWS SDK region name  |   aws-region   | SCC_AWS_REGION| AWS_REGION or AWS_DEFAULT_REGION |
-| STS Endpoint        |   sts-endpoint   | SCC_STS_ENDPOINT | AWS_ENDPOINT_URL_STS |
-| EC2 Endpoint        |   ec2-endpoint   | SCC_EC2_ENDPOINT | AWS_ENDPOINT_URL_EC2 |
-| SSM Endpoint        |   ssm-endpoint   | SCC_SSM_ENDPOINT | AWS_ENDPOINT_URL_SSM |
-| SSM Messages Endpoint        |   ssmmessages-endpoint   | SCC_SSMMESSAGES_ENDPOINT | n/a |
-| Proxy URL        |   proxy-url   | SCC_PROXY_URL | HTTPS_PROXY |
-| SSM Sessoion Plugin       |   ssm-session-plugin   | SCC_SSM_SESSION_PLUGIN  | n/a |
+| Description                | App Config/Flag       | App Env Variable         | AWS SDK Variable               |
+| :------------------------- | :-------------------: | :----------------------: | :-----------------------------:|
+| Config File Path           | config                | SCC_CONFIG               | n/a                            |
+| AWS SDK profile name       | aws-profile           | SCC_AWS_PROFILE          | AWS_PROFILE                    |
+| AWS SDK region name        | aws-region            | SCC_AWS_REGION           | AWS_REGION or AWS_DEFAULT_REGION |
+| STS Endpoint               | sts-endpoint          | SCC_STS_ENDPOINT         | AWS_ENDPOINT_URL_STS           |
+| EC2 Endpoint               | ec2-endpoint          | SCC_EC2_ENDPOINT         | AWS_ENDPOINT_URL_EC2           |
+| SSM Endpoint               | ssm-endpoint          | SCC_SSM_ENDPOINT         | AWS_ENDPOINT_URL_SSM           |
+| SSM Messages Endpoint      | ssmmessages-endpoint  | SCC_SSMMESSAGES_ENDPOINT | n/a                            |
+| Proxy URL                  | proxy-url             | SCC_PROXY_URL            | HTTPS_PROXY                    |
+| SSM Session Plugin         | ssm-session-plugin    | SCC_SSM_SESSION_PLUGIN   | n/a                            |
 
 ### Remarks
 
-- The app `proxy-url` flag only applies to services where the custom endpoints are not set.
-- The app `ssmmessages-endpoint` flag, it will be used to perform the WSS connection during an SSM Session by replacing the StreamUrl with the SSM Messages endpoint.
-- The app `ssm-session-plugin` flag,
+- The `proxy-url` flag is only applicable to services where custom endpoints are not set.
+- The `ssmmessages-endpoint` flag is used to perform the WSS connection during an SSM Session by replacing the StreamUrl with the SSM Messages endpoint.
+- The `ssm-session-plugin` flag specifies whether to use the AWS Session Manager plugin for the session.
 
 ### Sample config file
 
@@ -57,14 +63,11 @@ proxy-url: http://myproxy:3128
 
 ## Supported modes
 
-[Windows SSH Client](https://learn.microsoft.com/en-us/windows/terminal/tutorials/ssh#access-windows-ssh-client-and-ssh-server) is not installed by default.
-
 ## Shell
 
-Shell-level access to an instance can be obtained using the `shell` command.  This command takes
-an AWS SDK and a string to identify the target to connect with.
+Shell-level access to an instance can be obtained using the `shell` command. This command requires an AWS SDK profile and a string to identify the target instance.
 
-Note: If you have enabled KMS encryption for Sessions, then must use AWS Session Manager plugin.
+**Note**: If you have enabled KMS encryption for Sessions, you must use the AWS Session Manager plugin.
 
 ```shell
 $ssm-session-client shell i-0bdb4f892de4bb54c --config=config.yaml
@@ -74,9 +77,9 @@ IAM: [Sample IAM policies for Session Manager](https://docs.aws.amazon.com/syste
 
 ## SSH
 
-SSH over SSM integration can be used via the `ssh` command. Ensure the target instance has SSH authenticaiton configured before connecting. This feature is meant to be used in SSH configuration files according to the [AWS documentation](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-enable-ssh-connections.html).
+SSH over SSM integration can be used via the `ssh` command. Ensure the target instance has SSH authentication configured before connecting. This feature is meant to be used in SSH configuration files according to the [AWS documentation](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-enable-ssh-connections.html).
 
-First you need to configure `$HOME/.ssh/config` or `%USERPROFILE%\.ssh\config` (Windows)
+You need to configure the ProxyCommand `$HOME/.ssh/config` (Linux/macOS) or `%USERPROFILE%\.ssh\config` (Windows).
 
 ```shell
 # SSH over Session Manager
@@ -94,11 +97,11 @@ IAM: [Controlling user permissions for SSH connections through Session Manager](
 
 ## SSH with Instance Connect (Linux targets only)
 
-SSH over SSM with [EC2 Instance Connect](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-eic.html) can be used via the `instance-connect` command. The configuration is the same as SSH above, however SSH authentication configuration is not required. The authentication is allowed by IAM action `ec2-instance-connect:SendSSHPublicKey`
+SSH over SSM with [EC2 Instance Connect](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-eic.html) can be used via the `instance-connect` command. This configuration is similar to the SSH setup above, but SSH authentication configuration is not required. Authentication is managed by the IAM action `ec2-instance-connect:SendSSHPublicKey`.
 
-In this mode the app will try to use default public SSH keys: `id_ed25519.pub` and `id_rsa.pub`. for the temporary SSH authentication. Alternativelly a `ssh-public-key-file` flag can be set
+In this mode, the app will attempt to use default public SSH keys (`id_ed25519.pub` and `id_rsa.pub`) for temporary SSH authentication. Alternatively, you can specify a custom public key file using the `ssh-public-key-file` flag.
 
-**Note**: EC2 Instance connect endpoints are not available via AWS Private Link. Internet access or Internet Proxy will be required to use this mode.
+**Note**: EC2 Instance Connect endpoints are not available via AWS PrivateLink. Internet access or an Internet proxy is required to use this mode.
 
 ```shell
 # SSH over Session Manager with EC2 Instance Connect and default SSH keys
@@ -126,11 +129,10 @@ IAM:
 
 ## Port Forwarding
 
-Port Forwarding via SSM allows you to securely create tunnels between your instances deployed in private subnets, without the need to start the SSH service on the server, to open the SSH port in the security group or the need to use a bastion host.
-It can be used via the `port-forwarding` command. If local port is not provided SSH will assign a random local port
+Port Forwarding via SSM allows you to securely create tunnels between your instances deployed in private subnets without needing to start the SSH service on the server, open the SSH port in the security group, or use a bastion host. It can be used via the `port-forwarding` command. If a local port is not provided, SSH will assign a random local port.
 
 ```shell
-#SSH Port Forwarding from port local port 8888 to instance port 443
+# SSH Port Forwarding from local port 8888 to instance port 443
 $ssm-session-client port-forwarding i-0bdb4f892de4bb54c:443 8888 --config=config.yaml
 ```
 
@@ -138,9 +140,44 @@ $ssm-session-client port-forwarding i-0bdb4f892de4bb54c:443 8888 --config=config
 
 The target can be an instance ID, hostname or even IP address. The app uses a few functions to resolve the target.
 
+## Building from source
+
+To build this Go project, ensure you have Go installed on your system. You can download and install it from the [official Go website](https://golang.org/dl/).
+
+1. Clone the repository:
+
+```shell
+git clone https://github.com/alexbacchin/ssm-session-client.git
+cd ssm-session-client
+```
+
+2. Build the project for different operating systems:
+
+For Linux:
+
+```shell
+GOOS=linux GOARCH=amd64 go build -o ssm-session-client-linux main.go
+```
+
+For macOS:
+
+```shell
+GOOS=darwin GOARCH=amd64 go build -o ssm-session-client-macos main.go
+```
+
+For Windows:
+
+```shell
+GOOS=windows GOARCH=amd64 go build -o ssm-session-client.exe main.go
+```
+
+This will create an executable file named `ssm-session-client` in the current directory.
+
+You can now use the `ssm-session-client` executable as described in the sections above.
+
 ## TODO
 
 - EC2 Instance Connect automatically generate disposable SSH key pair for SSH authentication
-- Testing functions
+- Unit testing
 - Allow multiplexed connections (multiple, simultaneous streams) with port forwarding
 - Robustness (retries/error recovery)

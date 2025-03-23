@@ -9,15 +9,7 @@ import (
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
 )
 
-// Start a SSM SSH session.
-// Usage: ssm-ssh [profile_name] target_spec
-//   The profile_name argument is the name of profile in the local AWS configuration to use for credentials.
-//   if unset, it will consult the AWS_PROFILE environment variable, and if that is unset, will use credentials
-//   set via environment variables, or from the default profile.
-//
-//   The target_spec parameter is required, and is in the form of ec2_instance_id[:port_number] (ex: i-deadbeef:2222)
-//   The port_number argument is optional, and if not provided the default SSH port (22) is used.
-
+// StartSSHSession starts a SSH session using AWS SSM
 func StartSSHSession(target string) error {
 
 	var port int

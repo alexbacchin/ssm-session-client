@@ -12,8 +12,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 )
 
-// ...
-
+// BuildAWSConfig builds the AWS Config for the given service
 func ProxyHttpClient() *awshttp.BuildableClient {
 	if config.Flags().ProxyURL == "" {
 		return awshttp.NewBuildableClient()
