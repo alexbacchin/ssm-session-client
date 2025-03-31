@@ -3,7 +3,6 @@ package ssmclient
 import (
 	"errors"
 	"io"
-	"log"
 	"os"
 	"strconv"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/alexbacchin/ssm-session-client/datachannel"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"go.uber.org/zap"
 )
 
 // SSHSession starts a specialized port forwarding session to allow SSH connectivity to the target instance over
@@ -45,27 +45,27 @@ func SSHSession(cfg aws.Config, opts *PortForwardingInput) error {
 
 	installSignalHandler(c)
 
-	log.Print("waiting for handshake")
+	zap.S().Info("waiting for handshake")
 	if err := c.WaitForHandshakeComplete(); err != nil {
 		return err
 	}
-	log.Print("handshake complete")
+	zap.S().Info("handshake complete")
 
 	errCh := make(chan error, 5)
 	go func() {
 		if _, err := io.Copy(c, os.Stdin); err != nil {
-			log.Printf("error copying from stdin to websocket: %v", err)
+			zap.S().Infof("error copying from stdin to websocket: %v", err)
 			errCh <- err
 		}
-		log.Print("copy from stdin to websocket finished")
+		zap.S().Info("copy from stdin to websocket finished")
 	}()
 
 	if _, err := io.Copy(os.Stdout, c); err != nil {
 		if !errors.Is(err, io.EOF) {
-			log.Printf("error copying from websocket to stdout: %v", err)
+			zap.S().Infof("error copying from websocket to stdout: %v", err)
 			errCh <- err
 		}
-		log.Print("EOF received from websocket -> stdout copy")
+		zap.S().Info("EOF received from websocket -> stdout copy")
 	}
 	close(errCh)
 

@@ -2,7 +2,6 @@ package pkg
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"net/url"
 
@@ -10,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/smithy-go/logging"
+	"go.uber.org/zap"
 )
 
 // BuildAWSConfig builds the AWS Config for the given service
@@ -20,7 +21,7 @@ func ProxyHttpClient() *awshttp.BuildableClient {
 	client := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
 		proxyURL, err := url.Parse(config.Flags().ProxyURL)
 		if err != nil {
-			log.Fatal(err)
+			zap.S().Fatal(err)
 		}
 		tr.Proxy = http.ProxyURL(proxyURL)
 	})
@@ -29,10 +30,29 @@ func ProxyHttpClient() *awshttp.BuildableClient {
 
 func BuildAWSConfig(service string) (aws.Config, error) {
 
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(),
-		awsconfig.WithSharedConfigProfile(config.Flags().AWSProfile),
-		//awsconfig.WithClientLogMode(aws.LogRetries|aws.LogRequest),
-	)
+	var cfg aws.Config
+	var err error
+
+	logger := logging.LoggerFunc(func(classification logging.Classification, format string, v ...interface{}) {
+		if classification == logging.Warn {
+			zap.S().Warnf(format, v)
+		} else {
+			zap.S().Debugf(format, v)
+		}
+	})
+
+	if config.Flags().AWSProfile != "" {
+		cfg, err = awsconfig.LoadDefaultConfig(context.Background(),
+			awsconfig.WithSharedConfigProfile(config.Flags().AWSProfile),
+			awsconfig.WithLogger(logger),
+			awsconfig.WithClientLogMode((aws.LogRetries | aws.LogRequest)),
+		)
+	} else {
+		cfg, err = awsconfig.LoadDefaultConfig(context.Background(),
+			awsconfig.WithLogger(logger),
+			awsconfig.WithClientLogMode(aws.LogRetries|aws.LogRequest),
+		)
+	}
 	if err != nil {
 		return aws.Config{}, err
 	}

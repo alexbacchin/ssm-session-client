@@ -4,12 +4,12 @@
 package ssmclient
 
 import (
-	"log"
 	"os"
 	"os/signal"
 	"time"
 
 	"github.com/alexbacchin/ssm-session-client/datachannel"
+	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 )
 
@@ -42,7 +42,7 @@ func installSignalHandlers(c datachannel.DataChannel) chan os.Signal {
 			// plus, does Go implement sigwinch internally for windows? (we know the OS proper doesn't)
 			_ = updateTermSize(c) // todo handle error? (datachannel.SetTerminalSize error)
 		case os.Interrupt, unix.SIGQUIT, unix.SIGTERM:
-			log.Print("exiting")
+			zap.S().Info("exiting")
 			_ = cleanup()
 			_ = c.Close()
 			os.Exit(0)

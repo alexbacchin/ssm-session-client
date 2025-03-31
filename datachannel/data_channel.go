@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -19,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 // DataChannel is the interface definition for handling communication with the AWS SSM messaging service.
@@ -143,7 +143,7 @@ func (c *SsmDataChannel) WriteTo(w io.Writer) (n int64, err error) {
 	for {
 		nr, err = c.Read(buf)
 		if err != nil {
-			log.Printf("WriteTo read error: %v", err)
+			zap.S().Infof("WriteTo read error: %v", err)
 			return n, err
 		}
 
@@ -154,7 +154,7 @@ func (c *SsmDataChannel) WriteTo(w io.Writer) (n int64, err error) {
 				if errors.Is(err, io.EOF) {
 					isEOF = true
 				} else {
-					log.Printf("WriteTo HandleMsg error: %v", err)
+					zap.S().Infof("WriteTo HandleMsg error: %v", err)
 					return n, err
 				}
 			}
@@ -163,7 +163,7 @@ func (c *SsmDataChannel) WriteTo(w io.Writer) (n int64, err error) {
 				nw, err = w.Write(payload)
 				n += int64(nw)
 				if err != nil {
-					log.Printf("WriteTo write error: %v", err)
+					zap.S().Infof("WriteTo write error: %v", err)
 					return n, err
 				}
 			}
@@ -188,13 +188,13 @@ func (c *SsmDataChannel) ReadFrom(r io.Reader) (n int64, err error) {
 				// the contract of ReaderFrom states that io.EOF should not be returned, just
 				// exit the loop and return no error to indicate we are done
 				err = nil
-				log.Print("ReadFrom reader is closed")
+				zap.S().Info("ReadFrom reader is closed")
 			}
 			break
 		}
 
 		if _, err = c.Write(buf[:nr]); err != nil {
-			log.Printf("ReadFrom write error: %v", err)
+			zap.S().Infof("ReadFrom write error: %v", err)
 			break
 		}
 	}

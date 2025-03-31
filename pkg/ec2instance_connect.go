@@ -2,7 +2,6 @@ package pkg
 
 import (
 	"context"
-	"log"
 	"net"
 
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect"
+	"go.uber.org/zap"
 )
 
 // StartEC2InstanceConnect starts a SSH session using EC2 Instance Connect
@@ -29,28 +29,28 @@ func StartEC2InstanceConnect(target string) error {
 	if err == nil {
 		port, err = net.LookupPort("tcp", p)
 		if err != nil {
-			log.Fatal(err)
+			zap.S().Fatal(err)
 		}
 	} else {
 		t = target
 	}
 	ssmcfg, err := BuildAWSConfig("ssm")
 	if err != nil {
-		log.Fatal(err)
+		zap.S().Fatal(err)
 	}
 	tgt, err := ssmclient.ResolveTarget(t, ssmcfg)
 	if err != nil {
-		log.Fatal(err)
+		zap.S().Fatal(err)
 	}
 
 	pubKey, err := config.FindSSHPublicKey()
 	if err != nil {
-		log.Fatal(err)
+		zap.S().Fatal(err)
 	}
 
 	ec2iccfg, err := BuildAWSConfig("ec2ic")
 	if err != nil {
-		log.Fatal(err)
+		zap.S().Fatal(err)
 	}
 
 	ec2i := ec2instanceconnect.NewFromConfig(ec2iccfg)
@@ -60,7 +60,7 @@ func StartEC2InstanceConnect(target string) error {
 		SSHPublicKey:   aws.String(pubKey),
 	}
 	if _, err = ec2i.SendSSHPublicKey(context.Background(), &pubkeyIn); err != nil {
-		log.Fatal(err)
+		zap.S().Fatal(err)
 	}
 
 	in := ssmclient.PortForwardingInput{
@@ -69,7 +69,7 @@ func StartEC2InstanceConnect(target string) error {
 	}
 	ssmMessagesCfg, err := BuildAWSConfig("ssmmessages")
 	if err != nil {
-		log.Fatal(err)
+		zap.S().Fatal(err)
 	}
 	if config.Flags().UseSSMSessionPlugin {
 		return ssmclient.SSHPluginSession(ssmMessagesCfg, &in)

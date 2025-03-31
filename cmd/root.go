@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +8,7 @@ import (
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 )
 
 var version = "0.0.1"
@@ -34,7 +33,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&config.Flags().SSMMessagesVpcEndpoint, "ssmmessages-endpoint", "", "VPC endpoint for SSM messages")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().ProxyURL, "proxy-url", "", "proxy server to use for the connections")
 	rootCmd.PersistentFlags().BoolVar(&config.Flags().UseSSMSessionPlugin, "ssm-session-plugin", true, "Use AWS SSH Session Plugin to establish SSH session with advanced features, like encryption, compression, and session recording")
+	rootCmd.PersistentFlags().StringVar(&config.Flags().LogLevel, "log-level", "info", "Set the log level (debug, info, warn, error, fatal, panic)")
 
+	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
 	viper.BindPFlag("aws-profile", rootCmd.PersistentFlags().Lookup("aws-profile"))
 	viper.BindPFlag("aws-region", rootCmd.PersistentFlags().Lookup("aws-region"))
 	viper.BindPFlag("sts-endpoint", rootCmd.PersistentFlags().Lookup("sts-endpoint"))
@@ -42,7 +43,8 @@ func init() {
 	viper.BindPFlag("ssm-endpoint", rootCmd.PersistentFlags().Lookup("ssm-endpoint"))
 	viper.BindPFlag("ssmmessages-endpoint", rootCmd.PersistentFlags().Lookup("ssmmessages-endpoint"))
 	viper.BindPFlag("ssm-session-plugin", rootCmd.PersistentFlags().Lookup("ssm-session-plugin"))
-
+	viper.BindPFlag("proxy-url", rootCmd.PersistentFlags().Lookup("proxy-url"))
+	viper.BindPFlag("log-level", rootCmd.PersistentFlags().Lookup("log-level"))
 }
 
 // preRun is a Cobra pre-run function that is called before the command is executed
@@ -50,8 +52,9 @@ func init() {
 // for the AWS SDK to use the VPC endpoints if they are set.
 func preRun(ccmd *cobra.Command, args []string) {
 	err := viper.Unmarshal(config.Flags())
+	config.SetLogLevel(config.Flags().LogLevel)
 	if err != nil {
-		log.Fatalf("Unable to read Viper options into configuration: %v", err)
+		zap.S().Fatalf("Unable to read Viper options into configuration: %v", err)
 	}
 	if profile, ok := os.LookupEnv("AWS_PROFILE"); ok {
 		config.Flags().AWSProfile = profile
@@ -65,7 +68,7 @@ func preRun(ccmd *cobra.Command, args []string) {
 		config.Flags().AWSRegion = region
 	}
 	if config.Flags().AWSRegion == "" {
-		log.Fatal("AWS Region is not set")
+		zap.S().Fatal("AWS Region is not set")
 		return
 	}
 	if !config.IsSSMSessionManagerPluginInstalled() {
@@ -73,15 +76,15 @@ func preRun(ccmd *cobra.Command, args []string) {
 	}
 	if _, ok := os.LookupEnv("AWS_ENDPOINT_URL_STS"); !ok && config.Flags().STSVpcEndpoint != "" {
 		os.Setenv("AWS_ENDPOINT_URL_STS", "https://"+config.Flags().STSVpcEndpoint)
-		log.Println("Setting STS endpoint to:", os.Getenv("AWS_ENDPOINT_URL_STS"))
+		zap.S().Infoln("Setting STS endpoint to:", os.Getenv("AWS_ENDPOINT_URL_STS"))
 	}
 	if _, ok := os.LookupEnv("AWS_ENDPOINT_URL_SSM"); !ok && config.Flags().SSMVpcEndpoint != "" {
 		os.Setenv("AWS_ENDPOINT_URL_SSM", "https://"+config.Flags().SSMVpcEndpoint)
-		log.Println("Setting SSM endpoint to:", os.Getenv("AWS_ENDPOINT_URL_SSM"))
+		zap.S().Infoln("Setting SSM endpoint to:", os.Getenv("AWS_ENDPOINT_URL_SSM"))
 	}
 	if _, ok := os.LookupEnv("AWS_ENDPOINT_URL_EC2"); !ok && config.Flags().EC2VpcEndpoint != "" {
 		os.Setenv("AWS_ENDPOINT_URL_EC2", "https://"+config.Flags().EC2VpcEndpoint)
-		log.Println("Setting EC2 endpoint to:", os.Getenv("AWS_ENDPOINT_URL_EC2"))
+		zap.S().Infoln("Setting EC2 endpoint to:", os.Getenv("AWS_ENDPOINT_URL_EC2"))
 	}
 }
 
@@ -89,11 +92,11 @@ func preRun(ccmd *cobra.Command, args []string) {
 func initConfig() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Panic(err)
+		zap.S().Fatal(err)
 	}
 	ex, err := os.Executable()
 	if err != nil {
-		log.Panic(err)
+		zap.S().Fatal(err)
 	}
 	viper.SetConfigName(".ssm-session-client")
 	viper.AddConfigPath(".")
@@ -107,9 +110,9 @@ func initConfig() {
 	}
 
 	if err := viper.ReadInConfig(); err != nil {
-		log.Println("Cannot load config: ", err)
+		zap.S().Infoln("Cannot load config: ", err)
 	} else {
-		log.Println("Using config file:", viper.ConfigFileUsed())
+		zap.S().Infoln("Using config file:", viper.ConfigFileUsed())
 	}
 
 }
@@ -117,8 +120,7 @@ func initConfig() {
 // Execute is the entry point for the CLI
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		zap.S().Fatalf("Error executing command: %v", err)
 		os.Exit(1)
 	}
-	log.Println("Exiting")
 }

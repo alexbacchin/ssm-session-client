@@ -2,10 +2,11 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"go.uber.org/zap"
 )
 
 func FindSSHPublicKey() (string, error) {
@@ -26,7 +27,7 @@ func FindSSHPublicKey() (string, error) {
 	for _, path := range pubKeyPaths {
 		if _, err := os.Stat(path); err == nil {
 			pubKeyPath = path
-			log.Print("Found SSH public key at:", pubKeyPath)
+			zap.S().Info("Found SSH public key at:", pubKeyPath)
 			break
 		}
 	}
@@ -46,9 +47,9 @@ func FindSSHPublicKey() (string, error) {
 func IsSSMSessionManagerPluginInstalled() bool {
 	pluginPath, err := exec.LookPath("session-manager-plugin")
 	if err != nil {
-		log.Print("Session Manager Plugin is not installed.")
+		zap.S().Info("Session Manager Plugin is not installed.")
 		return false
 	}
-	log.Print("Session Manager Plugin found at: ", pluginPath)
+	zap.S().Info("Session Manager Plugin found at: ", pluginPath)
 	return true
 }

@@ -2,7 +2,6 @@ package ssmclient
 
 import (
 	"io"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -13,6 +12,7 @@ import (
 	"github.com/alexbacchin/ssm-session-client/datachannel"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"go.uber.org/zap"
 	"golang.org/x/net/netutil"
 )
 
@@ -58,7 +58,7 @@ func PortForwardingSession(cfg aws.Config, opts *PortForwardingInput) error {
 		return err
 	}
 	defer lsnr.Close()
-	log.Printf("listening on %s", lsnr.Addr())
+	zap.S().Infof("listening on %s", lsnr.Addr())
 
 	doneCh := make(chan bool)
 	errCh := make(chan error)
@@ -70,7 +70,7 @@ outer:
 		conn, err = lsnr.Accept()
 		if err != nil {
 			// not fatal, just wait for next (maybe unless lsnr is dead?)
-			log.Print(err)
+			zap.S().Info(err)
 			continue
 		}
 
@@ -98,19 +98,19 @@ outer:
 				}
 
 				if _, err = conn.Write(data); err != nil {
-					log.Print(err)
+					zap.S().Info(err)
 				}
 			case er, ok := <-errCh:
 				if !ok {
 					// I can't think of a good reason why we'd ever end up here, but if we do
 					// we should stop the world
-					log.Print("errCh closed")
+					zap.S().Info("errCh closed")
 					_ = conn.Close()
 					break outer
 				}
 
 				// any write to errCh means at least 1 of the goroutines has exited
-				log.Print(er)
+				zap.S().Info(er)
 				break inner
 			}
 		}
@@ -212,7 +212,7 @@ func installSignalHandler(c datachannel.DataChannel) {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGQUIT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigCh
-		log.Printf("Got signal: %s, shutting down", sig.String())
+		zap.S().Infof("Got signal: %s, shutting down", sig.String())
 
 		_ = c.TerminateSession()
 		_ = c.Close()
