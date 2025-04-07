@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"regexp"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"go.uber.org/zap"
 )
 
 var (
@@ -221,7 +221,7 @@ func (r *EC2Resolver) Resolve(filter ...types.Filter) (string, error) {
 	for _, res := range o.Reservations {
 		if len(res.Instances) > 0 {
 			if len(res.Instances) > 1 {
-				log.Print("WARNING: more than 1 instance found, using 1st value")
+				zap.S().Info("WARNING: more than 1 instance found, using 1st value")
 			}
 			return *res.Instances[0].InstanceId, nil
 		}

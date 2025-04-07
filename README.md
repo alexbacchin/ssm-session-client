@@ -35,6 +35,7 @@ These are the configuration options:
 | Description                | App Config/Flag       | App Env Variable         | AWS SDK Variable               |
 | :------------------------- | :-------------------: | :----------------------: | :-----------------------------:|
 | Config File Path           | config                | SCC_CONFIG               | n/a                            |
+| Log Level                  | log-level             | SCC_LOG_LEVEL            | n/a                            |
 | AWS SDK profile name       | aws-profile           | SCC_AWS_PROFILE          | AWS_PROFILE                    |
 | AWS SDK region name        | aws-region            | SCC_AWS_REGION           | AWS_REGION or AWS_DEFAULT_REGION |
 | STS Endpoint               | sts-endpoint          | SCC_STS_ENDPOINT         | AWS_ENDPOINT_URL_STS           |
@@ -50,6 +51,16 @@ These are the configuration options:
 - The `ssmmessages-endpoint` flag is used to perform the WSS connection during an SSM Session by replacing the StreamUrl with the SSM Messages endpoint.
 - The `ssm-session-plugin` flag specifies whether to use the AWS Session Manager plugin for the session.
 
+### Logging
+
+Logging is generated on the console and log file at:
+
+- Windows: `%USERPROFILE%\AppData\Local\ssm-session-client\logs`
+- MACOS: `$HOME/Library/Logs/ssm-session-client`
+- Linux and other Unix-like systems: `$HOME/.ssm-session-client/logs`
+
+Log files are rotated daily or when size reaches 10MB and the last 3 log files are kept
+
 ### Sample config file
 
 ```yaml
@@ -59,6 +70,7 @@ ssmmessages-endpoint: vpce-0e5e5b0c558a14bf2-r3p6zkdm.ssmmessages.us-west-2.vpce
 sts-endpoint: vpce-0877b4abeb479ee06-arkdktlc.sts.us-west-2.vpce.amazonaws.com
 aws-profile: sandbox
 proxy-url: http://myproxy:3128
+log-level: warn
 ```
 
 ## Supported modes

@@ -3,13 +3,13 @@ package ssmclient
 import (
 	"errors"
 	"io"
-	"log"
 	"os"
 
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/datachannel"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"go.uber.org/zap"
 )
 
 // ShellSession starts a shell session with the instance specified in the target parameter.  The aws.Config
@@ -58,7 +58,7 @@ func updateTermSize(c datachannel.DataChannel) error {
 		// make sure we set some default terminal size with contrived values
 		cols = 132
 		rows = 45
-		log.Printf("Could not get size of the terminal: %s, using width %d height %d\n", err, cols, rows)
+		zap.S().Infof("Could not get size of the terminal: %s, using width %d height %d\n", err, cols, rows)
 	}
 
 	return c.SetTerminalSize(rows, cols)

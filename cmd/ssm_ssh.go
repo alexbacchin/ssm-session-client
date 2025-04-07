@@ -11,12 +11,12 @@ var ssmSshCmd = &cobra.Command{
 	Long:  `Start a SSH Session via AWS SSM Session Manager`,
 	Args:  cobra.MatchAll(cobra.MinimumNArgs(1), cobra.OnlyValidArgs),
 	Run: func(cmd *cobra.Command, args []string) {
+		pkg.InitializeClient()
 		pkg.StartSSHSession(args[0])
 
 	},
 }
 
 func init() {
-
 	rootCmd.AddCommand(ssmSshCmd)
 }

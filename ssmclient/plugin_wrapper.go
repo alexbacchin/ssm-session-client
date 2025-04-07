@@ -13,6 +13,7 @@ import (
 	_ "github.com/aws/session-manager-plugin/src/sessionmanagerplugin/session/portsession"
 	_ "github.com/aws/session-manager-plugin/src/sessionmanagerplugin/session/shellsession"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 func PluginSession(cfg aws.Config, input *ssm.StartSessionInput) error {
@@ -27,7 +28,7 @@ func PluginSession(cfg aws.Config, input *ssm.StartSessionInput) error {
 	}
 
 	if config.Flags().SSMMessagesVpcEndpoint != "" {
-		//replace the hostname part of the stream url with the vpc endpoint
+		zap.S().Debugf("Using VPC endpoint for SSM messages: %s", config.Flags().SSMMessagesVpcEndpoint)
 		parsedUrl, err := url.Parse(*out.StreamUrl)
 		if err != nil {
 			return err
@@ -35,6 +36,7 @@ func PluginSession(cfg aws.Config, input *ssm.StartSessionInput) error {
 		parsedUrl.Host = config.Flags().SSMMessagesVpcEndpoint
 		newStreamUrl := parsedUrl.String()
 		out.StreamUrl = &newStreamUrl
+		zap.S().Debugf("New stream URL: %s", *out.StreamUrl)
 	}
 	ssmSession := new(session.Session)
 	ssmSession.SessionId = *out.SessionId

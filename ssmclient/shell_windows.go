@@ -4,12 +4,12 @@
 package ssmclient
 
 import (
-	"log"
 	"os"
 	"os/signal"
 	"time"
 
 	"github.com/alexbacchin/ssm-session-client/datachannel"
+	"go.uber.org/zap"
 	"golang.org/x/sys/windows"
 )
 
@@ -57,7 +57,7 @@ func installSignalHandlers(c datachannel.DataChannel) chan os.Signal {
 	go func() {
 		switch <-sigCh {
 		case os.Interrupt:
-			log.Print("exiting")
+			zap.S().Info("exiting")
 			_ = cleanup()
 			_ = c.Close()
 			os.Exit(0)

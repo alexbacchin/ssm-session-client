@@ -10,6 +10,7 @@ type Config struct {
 	SSMVpcEndpoint         string `mapstructure:"ssm-endpoint"`
 	STSVpcEndpoint         string `mapstructure:"sts-endpoint"`
 	UseSSMSessionPlugin    bool   `mapstructure:"ssm-session-plugin"`
+	LogLevel               string `mapstructure:"log-level"`
 }
 
 // create a singleton config object
