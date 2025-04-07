@@ -36,3 +36,5 @@ go.work.sum
 
 # Built Visual Studio Code Extensions
 *.vsix
+.ssm-session-client.*
+config.yaml
