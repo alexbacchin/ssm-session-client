@@ -11,6 +11,7 @@ var ssmShellCmd = &cobra.Command{
 	Long:  `Start a SSM SesShellsion via AWS SSM Session Manager`,
 	Args:  cobra.MatchAll(cobra.MinimumNArgs(1), cobra.OnlyValidArgs),
 	Run: func(cmd *cobra.Command, args []string) {
+		pkg.InitializeClient()
 		pkg.StartSSMShell(args[0])
 	},
 }

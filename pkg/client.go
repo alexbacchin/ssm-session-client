@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"os"
 
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -26,6 +27,38 @@ func ProxyHttpClient() *awshttp.BuildableClient {
 		tr.Proxy = http.ProxyURL(proxyURL)
 	})
 	return client
+}
+func InitializeClient() {
+	if profile, ok := os.LookupEnv("AWS_PROFILE"); ok {
+		config.Flags().AWSProfile = profile
+	}
+
+	if region, ok := os.LookupEnv("AWS_DEFAULT_REGION"); ok {
+		config.Flags().AWSRegion = region
+	}
+
+	if region, ok := os.LookupEnv("AWS_REGION"); ok {
+		config.Flags().AWSRegion = region
+	}
+	if config.Flags().AWSRegion == "" {
+		zap.S().Fatal("AWS Region is not set")
+		return
+	}
+	if !config.IsSSMSessionManagerPluginInstalled() {
+		config.Flags().UseSSMSessionPlugin = false
+	}
+	if _, ok := os.LookupEnv("AWS_ENDPOINT_URL_STS"); !ok && config.Flags().STSVpcEndpoint != "" {
+		os.Setenv("AWS_ENDPOINT_URL_STS", "https://"+config.Flags().STSVpcEndpoint)
+		zap.S().Infoln("Setting STS endpoint to:", os.Getenv("AWS_ENDPOINT_URL_STS"))
+	}
+	if _, ok := os.LookupEnv("AWS_ENDPOINT_URL_SSM"); !ok && config.Flags().SSMVpcEndpoint != "" {
+		os.Setenv("AWS_ENDPOINT_URL_SSM", "https://"+config.Flags().SSMVpcEndpoint)
+		zap.S().Infoln("Setting SSM endpoint to:", os.Getenv("AWS_ENDPOINT_URL_SSM"))
+	}
+	if _, ok := os.LookupEnv("AWS_ENDPOINT_URL_EC2"); !ok && config.Flags().EC2VpcEndpoint != "" {
+		os.Setenv("AWS_ENDPOINT_URL_EC2", "https://"+config.Flags().EC2VpcEndpoint)
+		zap.S().Infoln("Setting EC2 endpoint to:", os.Getenv("AWS_ENDPOINT_URL_EC2"))
+	}
 }
 
 func BuildAWSConfig(service string) (aws.Config, error) {

@@ -20,6 +20,7 @@ var portForwardingCmd = &cobra.Command{
 			fmt.Println("Invalid source port:", args[1])
 			return
 		}
+		pkg.InitializeClient()
 		pkg.StartSSMPortForwarder(args[0], sourcePort)
 	},
 }

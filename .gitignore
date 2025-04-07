@@ -1,3 +1,6 @@
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+#
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -12,17 +15,24 @@
 *.out
 
 # Dependency directories (remove the comment below to include it)
-vendor/
+# vendor/
 
-#IDE
-.idea/
+# Go workspace file
+go.work
+go.work.sum
 
-# OS X cruft
-.history
-.DS_Store
+# env file
+.env
 
-*.lock
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
 
-# compiled examples
-.ssm-session-client.yaml
-config.yaml
+# Local History for Visual Studio Code
+.history/
+
+# Built Visual Studio Code Extensions
+*.vsix

@@ -10,6 +10,5 @@ func main() {
 	logger := config.CreateLogger()
 	zap.ReplaceGlobals(logger)
 	defer logger.Sync() // flushes buffer, if any
-
 	cmd.Execute()
 }

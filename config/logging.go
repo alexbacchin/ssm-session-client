@@ -16,7 +16,6 @@ func CreateLogger() *zap.Logger {
 	logConfig = zap.Config{
 		Level: zap.NewAtomicLevelAt(zapcore.InfoLevel),
 	}
-	stdout := zapcore.AddSync(os.Stdout)
 
 	file := zapcore.AddSync(&lumberjack.Logger{
 		Filename:   path.Join(getLogFolder(), "app.log"),
@@ -29,12 +28,14 @@ func CreateLogger() *zap.Logger {
 	productionCfg.TimeKey = "timestamp"
 	productionCfg.EncodeTime = zapcore.ISO8601TimeEncoder
 
+	fileEncoder := zapcore.NewJSONEncoder(productionCfg)
+
+	stdout := zapcore.AddSync(os.Stdout)
+
 	developmentCfg := zap.NewDevelopmentEncoderConfig()
 	developmentCfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
 
 	consoleEncoder := zapcore.NewConsoleEncoder(developmentCfg)
-	fileEncoder := zapcore.NewJSONEncoder(productionCfg)
-
 	core := zapcore.NewTee(
 		zapcore.NewCore(consoleEncoder, stdout, logConfig.Level),
 		zapcore.NewCore(fileEncoder, file, logConfig.Level),
