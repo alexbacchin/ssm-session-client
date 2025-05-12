@@ -44,6 +44,20 @@ func InitializeClient() {
 		zap.S().Fatal("AWS Region is not set")
 		return
 	}
+
+	if config.Flags().UseSSOLogin {
+		loginInput := &SSOLoginInput{
+			ProfileName: config.Flags().AWSProfile,
+			Headed:      config.Flags().SSOOpenBrowser,
+		}
+		loginOutput, err := SSOLogin(context.Background(), loginInput)
+		if err != nil {
+			zap.S().Fatal("Error logging in to SSO: ", err)
+		}
+		if loginOutput != nil {
+			zap.S().Info("SSO login successful")
+		}
+	}
 	if !config.IsSSMSessionManagerPluginInstalled() {
 		config.Flags().UseSSMSessionPlugin = false
 	}

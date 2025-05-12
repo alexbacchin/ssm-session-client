@@ -38,6 +38,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&config.Flags().EC2VpcEndpoint, "ec2-endpoint", "", "VPC endpoint for EC2")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().SSMVpcEndpoint, "ssm-endpoint", "", "VPC endpoint for SSM")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().SSMMessagesVpcEndpoint, "ssmmessages-endpoint", "", "VPC endpoint for SSM messages")
+	rootCmd.PersistentFlags().BoolVar(&config.Flags().UseSSOLogin, "sso-login", false, "Authenticate using AWS SSO")
+	rootCmd.PersistentFlags().BoolVar(&config.Flags().SSOOpenBrowser, "sso-open-browser", false, "Automatically open default browser for AWS SSO login")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().ProxyURL, "proxy-url", "", "proxy server to use for the connections")
 	rootCmd.PersistentFlags().BoolVar(&config.Flags().UseSSMSessionPlugin, "ssm-session-plugin", true, "Use AWS SSH Session Plugin to establish SSH session with advanced features, like encryption, compression, and session recording")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().LogLevel, "log-level", "info", "Set the log level (debug, info, warn, error, fatal, panic)")
@@ -50,6 +52,7 @@ func init() {
 	viper.BindPFlag("ssm-endpoint", rootCmd.PersistentFlags().Lookup("ssm-endpoint"))
 	viper.BindPFlag("ssmmessages-endpoint", rootCmd.PersistentFlags().Lookup("ssmmessages-endpoint"))
 	viper.BindPFlag("ssm-session-plugin", rootCmd.PersistentFlags().Lookup("ssm-session-plugin"))
+	viper.BindPFlag("sso-login", rootCmd.PersistentFlags().Lookup("sso-login"))
 	viper.BindPFlag("proxy-url", rootCmd.PersistentFlags().Lookup("proxy-url"))
 	viper.BindPFlag("log-level", rootCmd.PersistentFlags().Lookup("log-level"))
 
