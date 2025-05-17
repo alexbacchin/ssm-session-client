@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/pkg/browser"
+	"go.uber.org/zap"
 	"gopkg.in/ini.v1"
 )
 
@@ -53,7 +53,6 @@ type IdentityResult struct {
 }
 
 type SSOLoginOutput struct {
-	Config           *aws.Config
 	Credentials      *aws.Credentials
 	CredentialsCache *aws.CredentialsCache
 	IdentityResult   *IdentityResult
@@ -114,56 +113,53 @@ func SSOLogin(ctx context.Context, params *SSOLoginInput) (*SSOLoginOutput, erro
 
 	err := params.validate()
 	if err != nil {
+		zap.S().Error("Error validating SSOLoginInput: ", err)
 		return nil, err
 	}
-
+	zap.S().Debug("SSO LoginInput: ", params)
 	configFilePath := config.DefaultSharedConfigFilename()
+	zap.S().Debug("SSO Config file path: ", configFilePath)
 	profile, err := getConfigProfile(params.ProfileName, configFilePath)
 	if err != nil {
+		zap.S().Error("SSO Error getting config profile: ", err)
 		return nil, err
 	}
+	zap.S().Debug("Config profile: ", profile)
 	cacheFilePath, err := getCacheFilePath(profile)
 	if err != nil {
+		zap.S().Error("SSO Error getting cache file path: ", err)
 		return nil, err
 	}
-
-	cfg, err := config.LoadDefaultConfig(
-		ctx,
-		config.WithSharedConfigProfile(profile.name),
-		// This is required because having a [default] with region in aws config will break. For
-		// some reason AWS GO-v2 doesn't honor it [default]. ¯\_(ツ)_/¯
-		config.WithRegion(profile.region),
-	)
-	if err != nil {
-		return nil, ConfigFileLoadError{err}
-	}
+	zap.S().Debug("Cache file path: ", cacheFilePath)
 
 	// This does not need to be run if ForceLogin is set, but doing it simplifies the overall flow, and is still fast.
-	creds, credCache, credCacheError = getAwsCredsFromCache(ctx, &cfg, profile, cacheFilePath)
-	identity, callerIDError := getCallerID(ctx, &cfg)
+	creds, credCache, credCacheError = getAwsCredsFromCache(ctx, profile, cacheFilePath)
+	identity, callerIDError := getCallerID(ctx)
 
 	// Creds are invalid, try logging in again
 	if credCacheError != nil || callerIDError != nil || params.ForceLogin {
-		cacheFile, err := ssoLoginFlow(ctx, &cfg, profile, params.Headed, params.LoginTimeout)
+		cacheFile, err := ssoLoginFlow(ctx, profile, params.Headed, params.LoginTimeout)
 		if err != nil {
+			zap.S().Error("Error running ssoLoginFlow: ", err)
 			return nil, err
 		}
 
 		err = writeCacheFile(cacheFile, cacheFilePath)
 		if err != nil {
+			zap.S().Error("Error writing cache file: ", err)
 			return nil, err
 		}
 
-		creds, credCache, credCacheError = getAwsCredsFromCache(ctx, &cfg, profile, cacheFilePath)
+		creds, credCache, credCacheError = getAwsCredsFromCache(ctx, profile, cacheFilePath)
 		if credCacheError != nil {
+			zap.S().Error("Error getting creds from cache: ", credCacheError)
 			return nil, credCacheError
 		}
 
-		identity, callerIDError = getCallerID(ctx, &cfg)
+		identity, callerIDError = getCallerID(ctx)
 	}
 
 	loginOutput := &SSOLoginOutput{
-		Config:           &cfg,
 		Credentials:      creds,
 		CredentialsCache: credCache,
 		IdentityResult: &IdentityResult{
@@ -171,6 +167,7 @@ func SSOLogin(ctx context.Context, params *SSOLoginInput) (*SSOLoginOutput, erro
 			Error:    callerIDError,
 		},
 	}
+	zap.S().Debug("SSOLoginOutput: ", loginOutput)
 
 	return loginOutput, nil
 }
@@ -199,12 +196,13 @@ func writeCacheFile(cacheFileData *cacheFileData, cacheFilePath string) error {
 		return CacheFileCreationError{err, "failed to marshal json", cacheFilePath}
 	}
 	dir, _ := filepath.Split(cacheFilePath)
-	err = os.MkdirAll(dir, 0777)
+	zap.S().Debug("Cache file dir: ", dir)
+	err = os.MkdirAll(dir, 0600)
 	if err != nil {
 		return CacheFileCreationError{err, "failed to create directory", cacheFilePath}
 	}
 
-	err = os.WriteFile(cacheFilePath, marshaledJson, fs.ModeAppend)
+	err = os.WriteFile(cacheFilePath, marshaledJson, 0600)
 	if err != nil {
 		return CacheFileCreationError{err, "failed to write file", cacheFilePath}
 
@@ -289,12 +287,15 @@ func getConfigProfile(profileName string, configFilePath string) (*configProfile
 // getAwsCredsFromCache
 func getAwsCredsFromCache(
 	ctx context.Context,
-	cfg *aws.Config,
 	profile *configProfile,
 	cacheFilePath string,
 ) (*aws.Credentials, *aws.CredentialsCache, error) {
-	ssoClient := sso.NewFromConfig(*cfg)
-	ssoOidcClient := ssooidc.NewFromConfig(*cfg)
+	cfg, err := BuildAWSConfig(ctx, "default")
+	if err != nil {
+		return nil, nil, err
+	}
+	ssoClient := sso.NewFromConfig(cfg)
+	ssoOidcClient := ssooidc.NewFromConfig(cfg)
 
 	ssoCredsProvider := ssocreds.New(
 		ssoClient,
@@ -316,12 +317,15 @@ func getAwsCredsFromCache(
 
 func ssoLoginFlow(
 	ctx context.Context,
-	cfg *aws.Config,
 	profile *configProfile,
 	headed bool,
 	loginTimeout time.Duration,
 ) (*cacheFileData, error) {
-	ssoOidcClient := ssooidc.NewFromConfig(*cfg)
+	ssoOidcConfig, err := BuildAWSConfig(ctx, "ssooidc")
+	if err != nil {
+		return nil, err
+	}
+	ssoOidcClient := ssooidc.NewFromConfig(ssoOidcConfig)
 
 	currentUser, err := user.Current()
 	if err != nil {
@@ -399,8 +403,12 @@ func ssoLoginFlow(
 	return &cacheFile, nil
 }
 
-func getCallerID(ctx context.Context, cfg *aws.Config) (*sts.GetCallerIdentityOutput, error) {
-	stsClient := sts.NewFromConfig(*cfg)
+func getCallerID(ctx context.Context) (*sts.GetCallerIdentityOutput, error) {
+	stsConfig, err := BuildAWSConfig(ctx, "sts")
+	if err != nil {
+		return nil, err
+	}
+	stsClient := sts.NewFromConfig(stsConfig)
 	identity, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
 		return nil, GetCallerIdError{err}
@@ -418,6 +426,7 @@ type ProfileValidationError struct {
 }
 
 func (e ProfileValidationError) Error() string {
+
 	return fmt.Sprintf(
 		"Profile validation failed. "+
 			"Profile: %s "+
