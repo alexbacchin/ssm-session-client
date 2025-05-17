@@ -15,7 +15,6 @@ import (
 
 // StartEC2InstanceConnect starts a SSH session using EC2 Instance Connect
 func StartEC2InstanceConnect(target string) error {
-
 	var port int
 	if !strings.Contains(target, "@") {
 		target = "ec2-user@" + target
@@ -34,7 +33,7 @@ func StartEC2InstanceConnect(target string) error {
 	} else {
 		t = target
 	}
-	ssmcfg, err := BuildAWSConfig("ssm")
+	ssmcfg, err := BuildAWSConfig(context.Background(), "ssm")
 	if err != nil {
 		zap.S().Fatal(err)
 	}
@@ -48,7 +47,7 @@ func StartEC2InstanceConnect(target string) error {
 		zap.S().Fatal(err)
 	}
 
-	ec2iccfg, err := BuildAWSConfig("ec2ic")
+	ec2iccfg, err := BuildAWSConfig(context.Background(), "ec2ic")
 	if err != nil {
 		zap.S().Fatal(err)
 	}
@@ -67,7 +66,7 @@ func StartEC2InstanceConnect(target string) error {
 		Target:     tgt,
 		RemotePort: port,
 	}
-	ssmMessagesCfg, err := BuildAWSConfig("ssmmessages")
+	ssmMessagesCfg, err := BuildAWSConfig(context.Background(), "ssmmessages")
 	if err != nil {
 		zap.S().Fatal(err)
 	}

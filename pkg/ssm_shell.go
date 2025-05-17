@@ -1,6 +1,8 @@
 package pkg
 
 import (
+	"context"
+
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
 	"go.uber.org/zap"
@@ -9,7 +11,7 @@ import (
 // StartSSMShell starts a shell session using AWS SSM
 func StartSSMShell(target string) error {
 
-	ssmcfg, err := BuildAWSConfig("ssm")
+	ssmcfg, err := BuildAWSConfig(context.Background(), "ssm")
 	if err != nil {
 		zap.S().Fatal(err)
 	}
@@ -18,7 +20,7 @@ func StartSSMShell(target string) error {
 		zap.S().Fatal(err)
 	}
 
-	ssmMessagesCfg, err := BuildAWSConfig("ssmmessages")
+	ssmMessagesCfg, err := BuildAWSConfig(context.Background(), "ssmmessages")
 	if err != nil {
 		zap.S().Fatal(err)
 	}

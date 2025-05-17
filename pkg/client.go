@@ -44,6 +44,7 @@ func InitializeClient() {
 		zap.S().Fatal("AWS Region is not set")
 		return
 	}
+
 	if !config.IsSSMSessionManagerPluginInstalled() {
 		config.Flags().UseSSMSessionPlugin = false
 	}
@@ -59,9 +60,22 @@ func InitializeClient() {
 		os.Setenv("AWS_ENDPOINT_URL_EC2", "https://"+config.Flags().EC2VpcEndpoint)
 		zap.S().Infoln("Setting EC2 endpoint to:", os.Getenv("AWS_ENDPOINT_URL_EC2"))
 	}
+	if config.Flags().UseSSOLogin {
+		loginInput := &SSOLoginInput{
+			ProfileName: config.Flags().AWSProfile,
+			Headed:      config.Flags().SSOOpenBrowser,
+		}
+		loginOutput, err := SSOLogin(context.Background(), loginInput)
+		if err != nil {
+			zap.S().Fatal("Error logging in to SSO: ", err)
+		}
+		if loginOutput != nil {
+			zap.S().Info("SSO login successful")
+		}
+	}
 }
 
-func BuildAWSConfig(service string) (aws.Config, error) {
+func BuildAWSConfig(ctx context.Context, service string) (aws.Config, error) {
 
 	var cfg aws.Config
 	var err error
@@ -75,13 +89,13 @@ func BuildAWSConfig(service string) (aws.Config, error) {
 	})
 
 	if config.Flags().AWSProfile != "" {
-		cfg, err = awsconfig.LoadDefaultConfig(context.Background(),
+		cfg, err = awsconfig.LoadDefaultConfig(ctx,
 			awsconfig.WithSharedConfigProfile(config.Flags().AWSProfile),
 			awsconfig.WithLogger(logger),
 			awsconfig.WithClientLogMode((aws.LogRetries | aws.LogRequest)),
 		)
 	} else {
-		cfg, err = awsconfig.LoadDefaultConfig(context.Background(),
+		cfg, err = awsconfig.LoadDefaultConfig(ctx,
 			awsconfig.WithLogger(logger),
 			awsconfig.WithClientLogMode(aws.LogRetries|aws.LogRequest),
 		)

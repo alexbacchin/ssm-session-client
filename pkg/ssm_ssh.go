@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"net"
 	"strings"
 
@@ -30,7 +31,7 @@ func StartSSHSession(target string) error {
 	} else {
 		t = target
 	}
-	ssmcfg, err := BuildAWSConfig("ssm")
+	ssmcfg, err := BuildAWSConfig(context.Background(), "ssm")
 	if err != nil {
 		zap.S().Fatal(err)
 	}
@@ -43,7 +44,7 @@ func StartSSHSession(target string) error {
 		Target:     tgt,
 		RemotePort: port,
 	}
-	ssmMessagesCfg, err := BuildAWSConfig("ssmmessages")
+	ssmMessagesCfg, err := BuildAWSConfig(context.Background(), "ssmmessages")
 	if err != nil {
 		zap.S().Fatal(err)
 	}

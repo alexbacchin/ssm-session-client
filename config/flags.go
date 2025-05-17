@@ -11,6 +11,8 @@ type Config struct {
 	STSVpcEndpoint         string `mapstructure:"sts-endpoint"`
 	UseSSMSessionPlugin    bool   `mapstructure:"ssm-session-plugin"`
 	LogLevel               string `mapstructure:"log-level"`
+	UseSSOLogin            bool   `mapstructure:"sso-login"`
+	SSOOpenBrowser         bool   `mapstructure:"sso-open-browser"`
 }
 
 // create a singleton config object
