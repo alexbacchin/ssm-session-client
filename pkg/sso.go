@@ -353,6 +353,7 @@ func ssoLoginFlow(
 
 	authUrl := aws.ToString(deviceAuth.VerificationUriComplete)
 	if headed {
+		fmt.Fprintf(os.Stderr, "Please approve the authorization request with user code: %s\n", *deviceAuth.UserCode)
 		err = browser.OpenURL(authUrl)
 		if err != nil {
 			return nil, BrowserOpenError{err}

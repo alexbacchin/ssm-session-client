@@ -32,24 +32,25 @@ The utility can be configured via:
 
 These are the configuration options:
 
-| Description                | App Config/Flag       | App Env Variable         | AWS SDK Variable               |
-| :------------------------- | :-------------------: | :----------------------: | :-----------------------------:|
-| Config File Path           | config                | SCC_CONFIG               | n/a                            |
-| Log Level                  | log-level             | SCC_LOG_LEVEL            | n/a                            |
-| AWS SDK profile name       | aws-profile           | SCC_AWS_PROFILE          | AWS_PROFILE                    |
-| AWS SDK region name        | aws-region            | SCC_AWS_REGION           | AWS_REGION or AWS_DEFAULT_REGION |
-| STS Endpoint               | sts-endpoint          | SCC_STS_ENDPOINT         | AWS_ENDPOINT_URL_STS           |
-| EC2 Endpoint               | ec2-endpoint          | SCC_EC2_ENDPOINT         | AWS_ENDPOINT_URL_EC2           |
-| SSM Endpoint               | ssm-endpoint          | SCC_SSM_ENDPOINT         | AWS_ENDPOINT_URL_SSM           |
-| SSM Messages Endpoint      | ssmmessages-endpoint  | SCC_SSMMESSAGES_ENDPOINT | n/a                            |
-| Proxy URL                  | proxy-url             | SCC_PROXY_URL            | HTTPS_PROXY                    |
-| SSM Session Plugin         | ssm-session-plugin    | SCC_SSM_SESSION_PLUGIN   | n/a                            |
+| Description                          | App Config/Flag       | App Env Variable         | AWS SDK Variable                |
+| :----------------------------------: | :-------------------: | :----------------------: | :------------------------------:|
+| Config File Path                     | config                | SCC_CONFIG               | n/a                             |
+| Log Level                            | log-level             | SCC_LOG_LEVEL            | n/a                             |
+| AWS SDK profile name                 | aws-profile           | SCC_AWS_PROFILE          | AWS_PROFILE                     |
+| AWS SDK region name                  | aws-region            | SCC_AWS_REGION           | AWS_REGION or AWS_DEFAULT_REGION|
+| AWS SDK SSO Login (true/false)       | sso-login             | SCC_SSO_LOGIN            | n/a                             |
+| AWS SDK SSO Open Browser (true/false)| sso-open-browser      | SCC_SSO_OPEN_BROWSER     | n/a                             |
+| STS Endpoint                         | sts-endpoint          | SCC_STS_ENDPOINT         | AWS_ENDPOINT_URL_STS            |
+| EC2 Endpoint                         | ec2-endpoint          | SCC_EC2_ENDPOINT         | AWS_ENDPOINT_URL_EC2            |
+| SSM Endpoint                         | ssm-endpoint          | SCC_SSM_ENDPOINT         | AWS_ENDPOINT_URL_SSM            |
+| SSM Messages Endpoint                | ssmmessages-endpoint  | SCC_SSMMESSAGES_ENDPOINT | n/a                             |
+| Proxy URL                            | proxy-url             | SCC_PROXY_URL            | HTTPS_PROXY                     |
+| SSM Session Plugin (true/false)      | ssm-session-plugin    | SCC_SSM_SESSION_PLUGIN   | n/a                             |
 
 ### Remarks
 
 - The `proxy-url` flag is only applicable to services where custom endpoints are not set.
 - The `ssmmessages-endpoint` flag is used to perform the WSS connection during an SSM Session by replacing the StreamUrl with the SSM Messages endpoint.
-- The `ssm-session-plugin` flag specifies whether to use the AWS Session Manager plugin for the session.
 
 ### Logging
 
@@ -61,7 +62,19 @@ Logging is generated on the console and log file at:
 
 Log files are rotated daily or when size reaches 10MB and the last 3 log files are kept
 
-### Sample config file
+### AWS Credentials
+
+This utitlity will use AWS SDK crendentials and profiles. More info [Authentication and access credentials for the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-authentication.html)
+
+### AWS Identity Center SSO Login
+
+If you have AWS SSO via Identity Center deployed, the `ssm-session-client` can automatically open the browser and perform device code authenticaiton. This enhence the experience as the authentication to AWS happens in the browser. In case your operating system does not have a browser, you can copy and paste the URL to another browser instead. Here are the steps to get SSO configured
+
+1. [Configure AWS CLI SSO via Identity Center](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html)
+2. Modify the configuration file (or environment variables) with `aws-profile` pointing to the AWS profile name with SSO, and `sso-login` set to `true`
+3. (Optional) If your operating system can open a browser, also set `sso-open-browser` to `true`.
+
+#### Sample config file
 
 ```yaml
 ec2-endpoint: vpce-059c3b85db66f8165-mzb6o9nb.ec2.us-west-2.vpce.amazonaws.com
@@ -71,6 +84,16 @@ sts-endpoint: vpce-0877b4abeb479ee06-arkdktlc.sts.us-west-2.vpce.amazonaws.com
 aws-profile: sandbox
 proxy-url: http://myproxy:3128
 log-level: warn
+sso-login: false
+```
+
+#### Sample config file with SSO
+
+```yaml
+aws-profile: sandbox-sso
+sso-login: true
+sso-open-browser: true
+aws-region: ap-southeast-2
 ```
 
 ## Supported modes
