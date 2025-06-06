@@ -5,9 +5,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"fmt"
 
+	"os/user"
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/smithy-go/logging"
@@ -129,4 +133,42 @@ func BuildAWSConfig(ctx context.Context, service string) (aws.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+
+func GetTarget(target string) (t string) {
+    user, _ := user.Current()
+    tag_value := fmt.Sprintf("Developer-%s", user.Username)
+    ec2Cfg, err := BuildAWSConfig(context.Background(), "ec2")
+    if err != nil {
+    	zap.S().Fatal(err)
+    }
+    ec2Client := ec2.NewFromConfig(ec2Cfg)
+    filters := []types.Filter{
+    	{
+    		Name:   aws.String("tag:Name"),
+    		Values: []string{tag_value},
+    	},
+    	{
+    		Name:   aws.String("instance-state-name"),
+    		Values: []string{"running"},
+    	},
+    }
+    input := &ec2.DescribeInstancesInput{
+    	Filters: filters,
+    }
+    result, err := ec2Client.DescribeInstances(context.TODO(), input)
+    if err != nil {
+    	zap.S().Fatal(err)
+    }
+    for _, reservation := range result.Reservations {
+    	if len(reservation.Instances) == 0 {
+    		err := fmt.Sprintf("No instances found named Developer-%s", user.Username)
+    		zap.S().Fatal(err)
+    	} else if len(reservation.Instances) != 1 {
+    		err := fmt.Sprintf("More than 1 instance with Developer-%s tag found", user.Username)
+    		zap.S().Fatal(err)
+    	}
+    }
+    return fmt.Sprintf("%s", *result.Reservations[0].Instances[0].InstanceId)
 }

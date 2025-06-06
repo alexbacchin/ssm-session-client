@@ -3,7 +3,6 @@ package pkg
 import (
 	"context"
 	"net"
-
 	"strings"
 
 	"github.com/alexbacchin/ssm-session-client/config"
@@ -32,6 +31,9 @@ func StartEC2InstanceConnect(target string) error {
 		}
 	} else {
 		t = target
+	}
+	if t == "devbox" {
+        t = GetTarget(t)
 	}
 	ssmcfg, err := BuildAWSConfig(context.Background(), "ssm")
 	if err != nil {

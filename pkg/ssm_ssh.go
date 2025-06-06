@@ -31,6 +31,9 @@ func StartSSHSession(target string) error {
 	} else {
 		t = target
 	}
+	if t == "devbox" {
+        t = GetTarget(t)
+	}
 	ssmcfg, err := BuildAWSConfig(context.Background(), "ssm")
 	if err != nil {
 		zap.S().Fatal(err)
