@@ -172,12 +172,10 @@ func GetTarget(target string) (t string) {
     }
     for _, reservation := range result.Reservations {
     	if len(reservation.Instances) == 0 {
-    		//err := fmt.Sprintf("No instances found named Developer-%s", user.Username)
-    		err := fmt.Sprintf("No instances found named Developer-%s", user)
+    		err := fmt.Sprintf("No instances found named Developer-%s", user.Username)
     		zap.S().Fatal(err)
     	} else if len(reservation.Instances) != 1 {
-    		//err := fmt.Sprintf("More than 1 instance with Developer-%s tag found", user.Username)
-    		err := fmt.Sprintf("More than 1 instance with Developer-%s tag found", user)
+    		err := fmt.Sprintf("More than 1 instance with Developer-%s tag found", user.Username)
     		zap.S().Fatal(err)
     	}
     }
