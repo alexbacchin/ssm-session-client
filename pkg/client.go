@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"fmt"
+	"strings"
 
 	"os/user"
 	"github.com/alexbacchin/ssm-session-client/config"
@@ -138,10 +139,18 @@ func BuildAWSConfig(ctx context.Context, service string) (aws.Config, error) {
 
 func GetTarget(target string) (t string) {
     user, _ := user.Current()
-    tag_value := fmt.Sprintf("Developer-%s", user.Username)
+    parts := strings.Split(user.Username, "\\")
+    var un string
+    if len(parts) > 0 {
+        un = parts[len(parts)-1]
+    } else {
+        err := fmt.Sprintf("Username cannot be determined from: %s", user)
+        zap.S().Fatal(err)
+    }
+    tag_value := fmt.Sprintf("Developer-%s", un)
     ec2Cfg, err := BuildAWSConfig(context.Background(), "ec2")
     if err != nil {
-    	zap.S().Fatal(err)
+        zap.S().Fatal(err)
     }
     ec2Client := ec2.NewFromConfig(ec2Cfg)
     filters := []types.Filter{
