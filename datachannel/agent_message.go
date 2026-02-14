@@ -70,7 +70,10 @@ func (m *AgentMessage) ValidateMessage() error {
 		return fmt.Errorf("payload length mismatch, WANT: %d, GOT: %d", m.payloadLength, len(m.Payload))
 	}
 
-	if !bytes.Equal(m.sha256PayloadDigest(), m.payloadDigest) {
+	originalDigest := make([]byte, len(m.payloadDigest))
+	copy(originalDigest, m.payloadDigest)
+	recalculated := m.sha256PayloadDigest()
+	if !bytes.Equal(recalculated, originalDigest) {
 		return errors.New("payload digest mismatch")
 	}
 
@@ -197,5 +200,8 @@ func parseTime(data []byte) time.Time {
 }
 
 func formatUUIDBytes(data []byte) []byte {
-	return append(data[8:], data[:8]...)
+	result := make([]byte, len(data))
+	copy(result, data[8:])
+	copy(result[len(data)-8:], data[:8])
+	return result
 }

@@ -16,15 +16,20 @@ jobs:
         goarch: ["386", amd64, arm64]
         exclude:
           - goarch: "386"
-            goos: darwin 
+            goos: darwin
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: Extract Go version from go.mod
+      id: go-version
+      run: echo "version=$(grep '^go ' go.mod | awk '{print $2}')" >> $GITHUB_OUTPUT
+
     - uses: wangyoucao577/go-release-action@v1.53
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         goos: ${{ matrix.goos }}
         goarch: ${{ matrix.goarch }}
-        goversion: "https://go.dev/dl/go1.24.9.linux-amd64.tar.gz"
+        goversion: ${{ steps.go-version.outputs.version }}
         binary_name: "ssm-session-client"
         ldflags: "-X 'github.com/alexbacchin/ssm-session-client/cmd.version=${{  github.ref_name }}'"
         
@@ -35,15 +40,20 @@ jobs:
       matrix:
         goos: [linux]
         goarch: [arm]
-        goarm: ["6","7"]             
+        goarm: ["6","7"]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: Extract Go version from go.mod
+      id: go-version
+      run: echo "version=$(grep '^go ' go.mod | awk '{print $2}')" >> $GITHUB_OUTPUT
+
     - uses: wangyoucao577/go-release-action@v1.53
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         goos: ${{ matrix.goos }}
         goarch: ${{ matrix.goarch }}
         goarm: ${{ matrix.goarm }}
-        goversion: "https://go.dev/dl/go1.24.9.linux-amd64.tar.gz"
-        binary_name: "ssm-session-client"        
+        goversion: ${{ steps.go-version.outputs.version }}
+        binary_name: "ssm-session-client"
         ldflags: "-X 'github.com/alexbacchin/ssm-session-client/cmd.version=${{  github.ref_name }}'"

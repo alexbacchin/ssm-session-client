@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -48,6 +49,24 @@ type SsmDataChannel struct {
 	inMsgBuf    MessageBuffer
 	lastRows    uint32
 	lastCols    uint32
+
+	// KMS encryption state
+	encryptionEnabled bool
+	encryptKey        []byte     // 32 bytes - for encrypting outbound data
+	decryptKey        []byte     // 32 bytes - for decrypting inbound data
+	cfg               aws.Config // stored for KMS client creation
+	sessionId         string     // from StartSessionOutput
+	targetId          string     // from StartSessionInput.Target
+	kmsClientOverride KMSClient  // for testing; if set, used instead of creating from cfg
+
+	// Agent version from handshake
+	agentVersion string
+
+	// Reconnection state
+	reconnectEnabled bool
+	maxReconnects    int
+	reconnectCount   int
+	ssmClient        *ssm.Client
 }
 
 func StreamEndpointOverride(resolver *SSMMessagesResover, output *ssm.StartSessionOutput) error {
@@ -71,6 +90,10 @@ func (c *SsmDataChannel) Open(cfg aws.Config, in *ssm.StartSessionInput, resolve
 	c.handshakeCh = make(chan bool, 1)
 	c.outMsgBuf = NewMessageBuffer(50)
 	c.inMsgBuf = NewMessageBuffer(50)
+	c.cfg = cfg
+	if in.Target != nil {
+		c.targetId = *in.Target
+	}
 
 	go c.processOutboundQueue()
 
@@ -85,6 +108,12 @@ func (c *SsmDataChannel) Close() error {
 		err = c.ws.Close()
 	}
 	return err
+}
+
+// AgentVersion returns the version string reported by the SSM agent during handshake.
+// This is used to determine which features are supported (e.g., connection multiplexing).
+func (c *SsmDataChannel) AgentVersion() string {
+	return c.agentVersion
 }
 
 // WaitForHandshakeComplete blocks further processing until the required SSM handshake sequence used for
@@ -212,8 +241,17 @@ func (c *SsmDataChannel) Write(payload []byte) (int, error) {
 	msg.MessageType = InputStreamData
 	msg.Flags = Data
 	msg.PayloadType = Output
-	msg.Payload = payload
 	msg.SequenceNumber = atomic.AddInt64(&c.seqNum, 1)
+
+	if c.encryptionEnabled {
+		encrypted, err := Encrypt(c.encryptKey, payload)
+		if err != nil {
+			return 0, fmt.Errorf("encrypt payload: %w", err)
+		}
+		msg.Payload = encrypted
+	} else {
+		msg.Payload = payload
+	}
 
 	return c.WriteMsg(msg)
 }
@@ -278,10 +316,21 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 	case OutputStreamData:
 		switch m.PayloadType {
 		case Output:
+			payload := m.Payload
+			if c.encryptionEnabled {
+				decrypted, err := Decrypt(c.decryptKey, payload)
+				if err != nil {
+					return nil, fmt.Errorf("decrypt payload: %w", err)
+				}
+				payload = decrypted
+			}
+
 			// unbuffered - return payload directly
 			if c.inMsgBuf == nil {
-				_ = c.sendAcknowledgeMessage(m) // todo - handle error?
-				return m.Payload, nil
+				if err := c.sendAcknowledgeMessage(m); err != nil {
+					zap.S().Warnf("failed to send acknowledge: %v", err)
+				}
+				return payload, nil
 			}
 
 			// duplicate message - discard
@@ -289,9 +338,16 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 				return nil, nil
 			}
 
+			// store decrypted payload back for buffered path
+			m.Payload = payload
+
 			// queue everything else
 			if err := c.inMsgBuf.Add(m); err != nil {
 				return nil, err
+			}
+		case EncChallengeRequest:
+			if err := c.processEncryptionChallenge(m); err != nil {
+				return nil, fmt.Errorf("encryption challenge: %w", err)
 			}
 		case HandshakeRequest:
 			// port forwarding session setup, we'll consider a handshake failure fatal
@@ -321,7 +377,7 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 	}
 
 	if err := c.sendAcknowledgeMessage(m); err != nil {
-		// todo - handle this better (retry?)
+		zap.S().Warnf("failed to send acknowledge for seq %d: %v", m.SequenceNumber, err)
 		return nil, err
 	}
 
@@ -423,8 +479,14 @@ func (c *SsmDataChannel) processInboundQueue() ([]byte, error) {
 }
 
 func (c *SsmDataChannel) processOutboundQueue() {
+	backoff := 500 * time.Millisecond
+	const (
+		minBackoff = 500 * time.Millisecond
+		maxBackoff = 30 * time.Second
+	)
+
 	for {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(backoff)
 		if c.pausePub {
 			continue
 		}
@@ -433,10 +495,22 @@ func (c *SsmDataChannel) processOutboundQueue() {
 			return
 		}
 
+		hasMessages := false
 		for m := c.outMsgBuf.Next(); m != nil; m = c.outMsgBuf.Next() {
+			hasMessages = true
 			if _, err := c.WriteMsg(m); err != nil {
-				// todo - handle error?
+				zap.S().Warnf("failed to retransmit message seq %d: %v", m.SequenceNumber, err)
 			}
+		}
+
+		// Exponential backoff: double when messages are pending, reset when queue is empty
+		if hasMessages {
+			backoff = backoff * 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		} else {
+			backoff = minBackoff
 		}
 	}
 }
@@ -476,7 +550,10 @@ func (c *SsmDataChannel) processHandshakeRequest(msg *AgentMessage) error {
 		return err
 	}
 
-	payload, err := json.Marshal(buildHandshakeResponse(req.RequestedClientActions))
+	// Store agent version for later use in connection multiplexing decisions
+	c.agentVersion = req.AgentVersion
+
+	payload, err := json.Marshal(c.buildHandshakeResponse(req.RequestedClientActions))
 	if err != nil {
 		return err
 	}
@@ -492,10 +569,57 @@ func (c *SsmDataChannel) processHandshakeRequest(msg *AgentMessage) error {
 	return err
 }
 
+// processEncryptionChallenge handles the EncChallengeRequest from the agent.
+// It decrypts the challenge with the decrypt key, re-encrypts with the encrypt key,
+// and sends the response. After success, encryption is enabled for all subsequent data.
+func (c *SsmDataChannel) processEncryptionChallenge(msg *AgentMessage) error {
+	var challengeReq EncryptionChallengeRequest
+	if err := json.Unmarshal(msg.Payload, &challengeReq); err != nil {
+		return fmt.Errorf("unmarshal challenge request: %w", err)
+	}
+
+	decrypted, err := Decrypt(c.decryptKey, challengeReq.Challenge)
+	if err != nil {
+		return fmt.Errorf("decrypt challenge: %w", err)
+	}
+
+	reEncrypted, err := Encrypt(c.encryptKey, decrypted)
+	if err != nil {
+		return fmt.Errorf("re-encrypt challenge: %w", err)
+	}
+
+	challengeResp := EncryptionChallengeResponse{
+		Challenge: reEncrypted,
+	}
+
+	payload, err := json.Marshal(challengeResp)
+	if err != nil {
+		return fmt.Errorf("marshal challenge response: %w", err)
+	}
+
+	out := NewAgentMessage()
+	out.MessageType = InputStreamData
+	out.SequenceNumber = msg.SequenceNumber
+	out.Flags = Data
+	out.PayloadType = EncChallengeResponse
+	out.Payload = payload
+
+	if _, err := c.WriteMsg(out); err != nil {
+		return fmt.Errorf("send challenge response: %w", err)
+	}
+
+	c.encryptionEnabled = true
+	zap.S().Info("KMS encryption enabled for session")
+	return nil
+}
+
 func (c *SsmDataChannel) startSession(cfg aws.Config, in *ssm.StartSessionInput, resolver *SSMMessagesResover) error {
 	out, err := ssm.NewFromConfig(cfg).StartSession(context.Background(), in)
 	if err != nil {
 		return err
+	}
+	if out.SessionId != nil {
+		c.sessionId = *out.SessionId
 	}
 	StreamEndpointOverride(resolver, out)
 	return c.StartSessionFromDataChannelURL(*out.StreamUrl, *out.TokenValue)
@@ -508,10 +632,19 @@ func (c *SsmDataChannel) StartSessionFromDataChannelURL(url string, token string
 	}
 	c.ws = ws
 
+	// Set up pong handler for health monitoring
+	c.ws.SetPongHandler(func(appData string) error {
+		zap.S().Debugf("received pong from server")
+		return nil
+	})
+
 	if err = c.openDataChannel(token); err != nil {
 		_ = c.Close()
 		return err
 	}
+
+	// Start ping loop for connection health monitoring
+	go c.pingLoop()
 
 	return nil
 }
@@ -528,28 +661,114 @@ func (c *SsmDataChannel) openDataChannel(token string) error {
 	return c.ws.WriteJSON(openDataChanInput)
 }
 
-// the only requirement of the handshake response is that we include an element in ProcessedClientActions
-// for each element of RequestedClientActions (there's only 2 types, and port forwarding only uses the
-// SessionType action type, so there should only be 1 element), and the ActionStatus is Success.  Any
-// non-success is considered a failure in the receiving agent.
-func buildHandshakeResponse(actions []RequestedClientAction) *HandshakeResponsePayload {
+// buildHandshakeResponse builds the handshake response for each RequestedClientAction.
+// It handles SessionType (always) and KMSEncryption (generates data keys via KMS).
+// Any non-success is considered a failure in the receiving agent.
+func (c *SsmDataChannel) buildHandshakeResponse(actions []RequestedClientAction) *HandshakeResponsePayload {
 	res := HandshakeResponsePayload{
-		// seems this can be whatever we need it to be, however certain features may only be available at
-		// certain client versions (must report at least version 1.1.70 to do stream muxing)
-		ClientVersion:          "0.0.1",
+		// Client version 1.2.0 enables port forwarding multiplexing support.
+		// AWS SSM agent requires client version >= 1.1.70 for stream muxing.
+		ClientVersion:          "1.2.0",
 		ProcessedClientActions: make([]ProcessedClientAction, len(actions)),
 	}
 
 	for i, a := range actions {
 		action := new(ProcessedClientAction)
 
-		if a.ActionType == SessionType {
+		switch a.ActionType {
+		case SessionType:
 			action.ActionType = a.ActionType
 			action.ActionStatus = Success
+		case KMSEncryption:
+			action.ActionType = a.ActionType
+			c.handleKMSEncryptionAction(a, action)
 		}
 
 		res.ProcessedClientActions[i] = *action
 	}
 
 	return &res
+}
+
+// handleKMSEncryptionAction processes the KMSEncryption handshake action by generating
+// data keys from KMS and storing them for session encryption.
+func (c *SsmDataChannel) handleKMSEncryptionAction(req RequestedClientAction, result *ProcessedClientAction) {
+	// Extract KMSKeyId from ActionParameters
+	paramBytes, err := json.Marshal(req.ActionParameters)
+	if err != nil {
+		result.ActionStatus = Failed
+		result.Error = fmt.Sprintf("marshal action parameters: %v", err)
+		return
+	}
+
+	var kmsReq KMSEncryptionRequest
+	if err := json.Unmarshal(paramBytes, &kmsReq); err != nil {
+		result.ActionStatus = Failed
+		result.Error = fmt.Sprintf("unmarshal KMS request: %v", err)
+		return
+	}
+
+	if kmsReq.KMSKeyId == "" {
+		result.ActionStatus = Failed
+		result.Error = "empty KMS key ID"
+		return
+	}
+
+	client := c.newKMSClient()
+	encryptKey, decryptKey, ciphertextKey, err := GenerateEncryptionKeys(client, kmsReq.KMSKeyId, c.sessionId, c.targetId)
+	if err != nil {
+		result.ActionStatus = Failed
+		result.Error = fmt.Sprintf("generate encryption keys: %v", err)
+		return
+	}
+
+	c.encryptKey = encryptKey
+	c.decryptKey = decryptKey
+
+	kmsResp := KMSEncryptionResponse{
+		KMSCipherTextKey:  ciphertextKey,
+		KMSCipherTextHash: ciphertextKeyHash(ciphertextKey),
+	}
+
+	actionResult, err := json.Marshal(kmsResp)
+	if err != nil {
+		result.ActionStatus = Failed
+		result.Error = fmt.Sprintf("marshal KMS response: %v", err)
+		return
+	}
+
+	result.ActionStatus = Success
+	result.ActionResult = actionResult
+}
+
+// newKMSClient creates a KMS client from the stored AWS config, or returns the
+// test override if set.
+func (c *SsmDataChannel) newKMSClient() KMSClient {
+	if c.kmsClientOverride != nil {
+		return c.kmsClientOverride
+	}
+	return kms.NewFromConfig(c.cfg)
+}
+
+// pingLoop sends periodic WebSocket ping messages to keep the connection alive
+// and detect disconnections. Runs until the connection is closed.
+func (c *SsmDataChannel) pingLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		c.mu.Lock()
+		ws := c.ws
+		c.mu.Unlock()
+
+		if ws == nil {
+			return
+		}
+
+		if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+			zap.S().Debugf("ping write error (connection may be closed): %v", err)
+			return
+		}
+		zap.S().Debugf("sent ping to server")
+	}
 }

@@ -43,6 +43,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&config.Flags().ProxyURL, "proxy-url", "", "proxy server to use for the connections")
 	rootCmd.PersistentFlags().BoolVar(&config.Flags().UseSSMSessionPlugin, "ssm-session-plugin", true, "Use AWS SSH Session Plugin to establish SSH session with advanced features, like encryption, compression, and session recording")
 	rootCmd.PersistentFlags().StringVar(&config.Flags().LogLevel, "log-level", "info", "Set the log level (debug, info, warn, error, fatal, panic)")
+	rootCmd.PersistentFlags().BoolVar(&config.Flags().EnableReconnect, "enable-reconnect", true, "Enable automatic reconnection on WebSocket disconnection")
+	rootCmd.PersistentFlags().IntVar(&config.Flags().MaxReconnects, "max-reconnects", 5, "Maximum number of reconnection attempts (0 = unlimited)")
 
 	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
 	viper.BindPFlag("aws-profile", rootCmd.PersistentFlags().Lookup("aws-profile"))
@@ -55,19 +57,21 @@ func init() {
 	viper.BindPFlag("sso-login", rootCmd.PersistentFlags().Lookup("sso-login"))
 	viper.BindPFlag("proxy-url", rootCmd.PersistentFlags().Lookup("proxy-url"))
 	viper.BindPFlag("log-level", rootCmd.PersistentFlags().Lookup("log-level"))
+	viper.BindPFlag("enable-reconnect", rootCmd.PersistentFlags().Lookup("enable-reconnect"))
+	viper.BindPFlag("max-reconnects", rootCmd.PersistentFlags().Lookup("max-reconnects"))
 }
 
 // preRun is a Cobra pre-run function that is called before the command is executed
 // It reads the configuration from the Viper configuration and sets the environment variables
 // for the AWS SDK to use the VPC endpoints if they are set.
 func preRun(ccmd *cobra.Command, args []string) {
-	err := viper.Unmarshal(config.Flags())
-	config.SetLogLevel(config.Flags().LogLevel)
-
-	if err != nil {
+	if err := viper.Unmarshal(config.Flags()); err != nil {
 		zap.S().Fatalf("Unable to read Viper options into configuration: %v", err)
 	}
 
+	if err := config.SetLogLevel(config.Flags().LogLevel); err != nil {
+		zap.S().Fatalf("Unable to set log level: %v", err)
+	}
 }
 
 // / initConfig reads in config file and ENV variables if set.

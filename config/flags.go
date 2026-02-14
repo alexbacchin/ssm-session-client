@@ -13,6 +13,8 @@ type Config struct {
 	LogLevel               string `mapstructure:"log-level"`
 	UseSSOLogin            bool   `mapstructure:"sso-login"`
 	SSOOpenBrowser         bool   `mapstructure:"sso-open-browser"`
+	EnableReconnect        bool   `mapstructure:"enable-reconnect"`
+	MaxReconnects          int    `mapstructure:"max-reconnects"`
 }
 
 // create a singleton config object
