@@ -15,6 +15,9 @@ type Config struct {
 	SSOOpenBrowser         bool   `mapstructure:"sso-open-browser"`
 	EnableReconnect        bool   `mapstructure:"enable-reconnect"`
 	MaxReconnects          int    `mapstructure:"max-reconnects"`
+	SSHKeyFile             string `mapstructure:"ssh-key-file"`
+	NoHostKeyCheck         bool   `mapstructure:"no-host-key-check"`
+	SSHExecCommand         string `mapstructure:"ssh-exec-command"`
 }
 
 // create a singleton config object
