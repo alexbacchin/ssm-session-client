@@ -10,10 +10,14 @@ var ec2InstanceConnectCmd = &cobra.Command{
 	Use:   "instance-connect [target]",
 	Short: "Start a SSH Session using instance connect.",
 	Long:  `Start a SSH Session via AWS SSM Session Manager and using instance connect.`,
-	Args:  cobra.MatchAll(cobra.MinimumNArgs(1), cobra.OnlyValidArgs),
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.ArbitraryArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		pkg.InitializeClient()
 		pkg.StartEC2InstanceConnect(args[0])
+		return nil
 	},
 }
 

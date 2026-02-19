@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -170,14 +172,14 @@ func (c *SsmDataChannel) Read(data []byte) (int, error) {
 
 // WriteTo uses the data channel as an io.Copy read source, writing output to the provided writer.
 func (c *SsmDataChannel) WriteTo(w io.Writer) (n int64, err error) {
-	buf := make([]byte, 2048)
+	buf := make([]byte, 4096)
 	var nr, nw int
 	var payload []byte
 
 	for {
 		nr, err = c.Read(buf)
 		if err != nil {
-			zap.S().Infof("WriteTo read error: %v", err)
+			zap.S().Debugf("WriteTo read error: %v", err)
 			return n, err
 		}
 
@@ -222,7 +224,7 @@ func (c *SsmDataChannel) ReadFrom(r io.Reader) (n int64, err error) {
 				// the contract of ReaderFrom states that io.EOF should not be returned, just
 				// exit the loop and return no error to indicate we are done
 				err = nil
-				zap.S().Info("ReadFrom reader is closed")
+				zap.S().Debug("ReadFrom reader is closed")
 			}
 			break
 		}
@@ -327,6 +329,17 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 
 			// unbuffered - return payload directly
 			if c.inMsgBuf == nil {
+				// Discard duplicate/retransmitted messages to prevent
+				// data corruption in the output stream. The SSM agent may
+				// retransmit before our ack arrives under heavy traffic.
+				lastSeen := atomic.LoadInt64(&c.inSeqNum)
+				if m.SequenceNumber <= lastSeen && lastSeen > 0 {
+					if err := c.sendAcknowledgeMessage(m); err != nil {
+						zap.S().Warnf("failed to send acknowledge: %v", err)
+					}
+					return nil, nil
+				}
+				atomic.StoreInt64(&c.inSeqNum, m.SequenceNumber)
 				if err := c.sendAcknowledgeMessage(m); err != nil {
 					zap.S().Warnf("failed to send acknowledge: %v", err)
 				}
@@ -665,10 +678,15 @@ func (c *SsmDataChannel) openDataChannel(token string) error {
 // It handles SessionType (always) and KMSEncryption (generates data keys via KMS).
 // Any non-success is considered a failure in the receiving agent.
 func (c *SsmDataChannel) buildHandshakeResponse(actions []RequestedClientAction) *HandshakeResponsePayload {
+	// Advertise client version >= 1.1.70 to enable multiplexed port forwarding
+	// in agents that support it (>= 3.0.196.0). Older agents ignore the version.
+	clientVersion := "1.1.0"
+	if versionGte(c.agentVersion, "3.0.196.0") {
+		clientVersion = "1.2.0"
+	}
+
 	res := HandshakeResponsePayload{
-		// Client version 1.2.0 enables port forwarding multiplexing support.
-		// AWS SSM agent requires client version >= 1.1.70 for stream muxing.
-		ClientVersion:          "1.2.0",
+		ClientVersion:          clientVersion,
 		ProcessedClientActions: make([]ProcessedClientAction, len(actions)),
 	}
 
@@ -682,6 +700,9 @@ func (c *SsmDataChannel) buildHandshakeResponse(actions []RequestedClientAction)
 		case KMSEncryption:
 			action.ActionType = a.ActionType
 			c.handleKMSEncryptionAction(a, action)
+		default:
+			action.ActionType = a.ActionType
+			action.ActionStatus = Unsupported
 		}
 
 		res.ProcessedClientActions[i] = *action
@@ -771,4 +792,50 @@ func (c *SsmDataChannel) pingLoop() {
 		}
 		zap.S().Debugf("sent ping to server")
 	}
+}
+
+// versionGte returns true if version >= minVersion using dot-separated integer comparison.
+func versionGte(version, minVersion string) bool {
+	parse := func(v string) []int {
+		if v == "" {
+			return nil
+		}
+		parts := strings.Split(v, ".")
+		result := make([]int, 0, len(parts))
+		for _, p := range parts {
+			num, err := strconv.Atoi(p)
+			if err != nil || num < 0 {
+				return nil
+			}
+			result = append(result, num)
+		}
+		return result
+	}
+
+	a := parse(version)
+	b := parse(minVersion)
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+
+	maxLen := len(a)
+	if len(b) > maxLen {
+		maxLen = len(b)
+	}
+	for i := 0; i < maxLen; i++ {
+		av, bv := 0, 0
+		if i < len(a) {
+			av = a[i]
+		}
+		if i < len(b) {
+			bv = b[i]
+		}
+		if av > bv {
+			return true
+		}
+		if av < bv {
+			return false
+		}
+	}
+	return true
 }

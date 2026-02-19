@@ -27,7 +27,8 @@ type PortForwardingInput struct {
 	Target     string
 	RemotePort int
 	LocalPort  int
-	Host       string // optional
+	Host       string          // optional
+	ReadyCh    chan struct{}    // optional; closed when the TCP listener is ready
 }
 
 // PortForwardingSession starts a port forwarding session using the PortForwardingInput parameters to
@@ -100,6 +101,10 @@ func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataCh
 	}
 	defer lsnr.Close()
 
+	if opts.ReadyCh != nil {
+		close(opts.ReadyCh)
+	}
+
 	go func() {
 		<-ctx.Done()
 		lsnr.Close()
@@ -125,6 +130,10 @@ func startBasicPortForwardingSession(ctx context.Context, c *datachannel.SsmData
 		closeFunc.Do(func() { _ = lsnr.Close() })
 	}
 	defer closeLsnr()
+
+	if opts.ReadyCh != nil {
+		close(opts.ReadyCh)
+	}
 
 	go func() {
 		<-ctx.Done()

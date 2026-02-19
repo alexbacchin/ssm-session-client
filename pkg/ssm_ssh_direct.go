@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/ssmclient"
@@ -40,5 +41,33 @@ func StartSSHDirectSession(target string) error {
 		ExecCommand:    config.Flags().SSHExecCommand,
 	}
 
+	if config.Flags().UseInstanceConnect {
+		if err := prepareInstanceConnect(context.Background(), tgt, user, opts); err != nil {
+			return err
+		}
+	}
+
 	return ssmclient.SSHDirectSession(ssmMessagesCfg, opts)
+}
+
+// prepareInstanceConnect generates an ephemeral SSH key pair, pushes the public
+// half to the EC2 instance via EC2 Instance Connect, and stores the signer on
+// opts so it is used as the first authentication method.
+func prepareInstanceConnect(ctx context.Context, instanceID, user string, opts *ssmclient.SSHDirectInput) error {
+	signer, pubKey, err := GenerateEphemeralSSHKey()
+	if err != nil {
+		return fmt.Errorf("generating ephemeral key: %w", err)
+	}
+
+	ec2iccfg, err := BuildAWSConfig(ctx, "ec2ic")
+	if err != nil {
+		return fmt.Errorf("building EC2IC config: %w", err)
+	}
+
+	if err := SendInstanceConnectKey(ctx, ec2iccfg, instanceID, user, pubKey); err != nil {
+		return err
+	}
+
+	opts.EphemeralSigner = signer
+	return nil
 }

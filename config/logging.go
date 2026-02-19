@@ -36,14 +36,16 @@ func CreateLogger() (*zap.Logger, error) {
 
 	fileEncoder := zapcore.NewJSONEncoder(productionCfg)
 
-	stdout := zapcore.AddSync(os.Stdout)
+	// Only log to stderr at WARN level or above to avoid interfering with
+	// ProxyCommand usage where stderr output can confuse SSH clients (e.g. VS Code).
+	stderr := zapcore.AddSync(os.Stderr)
 
 	developmentCfg := zap.NewDevelopmentEncoderConfig()
 	developmentCfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
 
 	consoleEncoder := zapcore.NewConsoleEncoder(developmentCfg)
 	core := zapcore.NewTee(
-		zapcore.NewCore(consoleEncoder, stdout, logConfig.Level),
+		zapcore.NewCore(consoleEncoder, stderr, zap.NewAtomicLevelAt(zapcore.WarnLevel)),
 		zapcore.NewCore(fileEncoder, file, logConfig.Level),
 	)
 

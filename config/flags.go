@@ -18,6 +18,12 @@ type Config struct {
 	SSHKeyFile             string `mapstructure:"ssh-key-file"`
 	NoHostKeyCheck         bool   `mapstructure:"no-host-key-check"`
 	SSHExecCommand         string `mapstructure:"ssh-exec-command"`
+	UseInstanceConnect     bool   `mapstructure:"instance-connect"`
+	RDPPort                int    `mapstructure:"rdp-port"`
+	RDPLocalPort           int    `mapstructure:"rdp-local-port"`
+	RDPGetPassword         bool   `mapstructure:"rdp-get-password"`
+	RDPKeyPairFile         string `mapstructure:"rdp-key-pair-file"`
+	RDPUsername            string `mapstructure:"rdp-username"`
 }
 
 // create a singleton config object

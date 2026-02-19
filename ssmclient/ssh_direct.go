@@ -23,12 +23,13 @@ import (
 
 // SSHDirectInput configures an SSH direct session.
 type SSHDirectInput struct {
-	Target         string // EC2 instance ID
-	User           string // SSH username
-	RemotePort     int    // SSH port (default 22)
-	KeyFile        string // Path to private key file (optional, empty = auto-discover)
-	NoHostKeyCheck bool   // Skip host key verification
-	ExecCommand    string // Command to execute; empty means interactive shell
+	Target          string     // EC2 instance ID
+	User            string     // SSH username
+	RemotePort      int        // SSH port (default 22)
+	KeyFile         string     // Path to private key file (optional, empty = auto-discover)
+	NoHostKeyCheck  bool       // Skip host key verification
+	ExecCommand     string     // Command to execute; empty means interactive shell
+	EphemeralSigner ssh.Signer // In-memory signer (e.g. from EC2 Instance Connect ephemeral key)
 }
 
 // SSHDirectSession establishes a direct SSH connection to an EC2 instance via SSM
@@ -76,13 +77,15 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 
 	sshConfig := &ssh.ClientConfig{
 		User:            opts.User,
-		Auth:            buildSSHAuthMethods(opts.KeyFile),
+		Auth:            buildSSHAuthMethods(opts.KeyFile, opts.EphemeralSigner),
 		HostKeyCallback: hostKeyCallback,
 	}
 
 	// ssh.NewClientConn requires host:port so knownhosts can normalize the address.
+	// net.Pipe() returns "pipe" for RemoteAddr() which causes knownhosts to fail
+	// with SplitHostPort. Wrap the conn so RemoteAddr() returns the real target address.
 	sshAddr := net.JoinHostPort(opts.Target, port)
-	sshConn, chans, reqs, err := ssh.NewClientConn(ssmConn, sshAddr, sshConfig)
+	sshConn, chans, reqs, err := ssh.NewClientConn(&ssmAddrConn{Conn: ssmConn, addr: ssmAddr(sshAddr)}, sshAddr, sshConfig)
 	if err != nil {
 		return fmt.Errorf("SSH connection failed: %w", err)
 	}
@@ -97,10 +100,16 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 	return runInteractiveSSHSession(client)
 }
 
-// buildSSHAuthMethods constructs the authentication method chain:
-// SSH agent → private key file → password prompt.
-func buildSSHAuthMethods(keyFile string) []ssh.AuthMethod {
+// buildSSHAuthMethods constructs the authentication method chain.
+// When an ephemeral signer is provided (e.g. from EC2 Instance Connect) it is
+// tried first, before SSH agent and key-file methods.
+// Order: ephemeral key → SSH agent → private key file → password prompt.
+func buildSSHAuthMethods(keyFile string, ephemeral ssh.Signer) []ssh.AuthMethod {
 	var methods []ssh.AuthMethod
+
+	if ephemeral != nil {
+		methods = append(methods, ssh.PublicKeys(ephemeral))
+	}
 
 	if method := trySSHAgentAuth(); method != nil {
 		methods = append(methods, method)
@@ -238,6 +247,22 @@ func tofuHostKeyCallback(knownHostsCb ssh.HostKeyCallback, knownHostsFile string
 	}
 }
 
+// ssmAddr is a net.Addr whose String() returns a "host:port" value, satisfying
+// golang.org/x/crypto/ssh/knownhosts which calls net.SplitHostPort on it.
+type ssmAddr string
+
+func (a ssmAddr) Network() string { return "tcp" }
+func (a ssmAddr) String() string  { return string(a) }
+
+// ssmAddrConn wraps a net.Conn to override RemoteAddr() with a real host:port.
+// net.Pipe() connections return "pipe" which breaks knownhosts.SplitHostPort.
+type ssmAddrConn struct {
+	net.Conn
+	addr ssmAddr
+}
+
+func (c *ssmAddrConn) RemoteAddr() net.Addr { return c.addr }
+
 // appendKnownHost appends a single host key line to the known_hosts file,
 // creating the file if it does not exist.
 func appendKnownHost(knownHostsFile, hostname string, key ssh.PublicKey) error {
@@ -295,7 +320,16 @@ func runInteractiveSSHSession(client *ssh.Client) error {
 		return fmt.Errorf("start shell: %w", err)
 	}
 
-	return session.Wait()
+	if err := session.Wait(); err != nil {
+		var exitErr *ssh.ExitError
+		if errors.As(err, &exitErr) {
+			// Propagate the remote exit code directly (e.g. 130 for Ctrl+C).
+			// This avoids a spurious FATAL log for normal interactive session exits.
+			os.Exit(exitErr.ExitStatus())
+		}
+		return err
+	}
+	return nil
 }
 
 // runSSHCommand executes a single command over the SSH connection, streaming

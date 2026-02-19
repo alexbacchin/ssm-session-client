@@ -23,7 +23,7 @@ func TestBuildSSHAuthMethodsEmpty(t *testing.T) {
 	// Ensure SSH_AUTH_SOCK is not set so the agent path is skipped.
 	t.Setenv("SSH_AUTH_SOCK", "")
 
-	methods := buildSSHAuthMethods("/nonexistent/key")
+	methods := buildSSHAuthMethods("/nonexistent/key", nil)
 	if len(methods) == 0 {
 		t.Fatal("expected at least one auth method (password fallback)")
 	}
@@ -37,7 +37,7 @@ func TestBuildSSHAuthMethodsWithKey(t *testing.T) {
 
 	keyPath := generateTestKey(t)
 
-	methods := buildSSHAuthMethods(keyPath)
+	methods := buildSSHAuthMethods(keyPath, nil)
 	// Expect: publickeys + password
 	if len(methods) < 2 {
 		t.Errorf("expected at least 2 auth methods, got %d", len(methods))
