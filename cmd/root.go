@@ -12,6 +12,11 @@ import (
 )
 
 var version = "0.0.1"
+
+// GetVersion returns the application version string.
+func GetVersion() string {
+	return version
+}
 var configFile string
 var rootCmd = &cobra.Command{
 	Use:     "ssm-session-client",
@@ -74,8 +79,14 @@ func preRun(ccmd *cobra.Command, args []string) {
 	}
 }
 
-// / initConfig reads in config file and ENV variables if set.
+// initConfig reads in config file and ENV variables if set.
 func initConfig() {
+	LoadConfig(configFile)
+}
+
+// LoadConfig reads the config file and SSC_ environment variables into config.Flags().
+// It can be called from outside the cobra command pipeline (e.g. SSH compat mode).
+func LoadConfig(cfgFile string) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		zap.S().Fatal(err)
@@ -90,9 +101,10 @@ func initConfig() {
 	viper.AddConfigPath(filepath.Dir(ex))
 	viper.SetEnvPrefix("SSC")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.AutomaticEnv()
 
-	if configFile != "" {
-		viper.SetConfigFile(configFile)
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
 	}
 
 	if err := viper.ReadInConfig(); err != nil {
@@ -101,6 +113,13 @@ func initConfig() {
 		zap.S().Infoln("Using config file:", viper.ConfigFileUsed())
 	}
 
+	if err := viper.Unmarshal(config.Flags()); err != nil {
+		zap.S().Fatalf("Unable to read Viper options into configuration: %v", err)
+	}
+
+	if err := config.SetLogLevel(config.Flags().LogLevel); err != nil {
+		zap.S().Fatalf("Unable to set log level: %v", err)
+	}
 }
 
 // Execute is the entry point for the CLI
