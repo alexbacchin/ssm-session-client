@@ -2,12 +2,15 @@ package ssmclient
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/alexbacchin/ssm-session-client/config"
@@ -23,13 +26,17 @@ import (
 
 // SSHDirectInput configures an SSH direct session.
 type SSHDirectInput struct {
-	Target          string     // EC2 instance ID
-	User            string     // SSH username
-	RemotePort      int        // SSH port (default 22)
-	KeyFile         string     // Path to private key file (optional, empty = auto-discover)
-	NoHostKeyCheck  bool       // Skip host key verification
-	ExecCommand     string     // Command to execute; empty means interactive shell
-	EphemeralSigner ssh.Signer // In-memory signer (e.g. from EC2 Instance Connect ephemeral key)
+	Target             string     // EC2 instance ID
+	User               string     // SSH username
+	RemotePort         int        // SSH port (default 22)
+	KeyFile            string     // Path to private key file (optional, empty = auto-discover)
+	NoHostKeyCheck     bool       // Skip host key verification
+	ExecCommand        string     // Command to execute; empty means interactive shell
+	EphemeralSigner    ssh.Signer // In-memory signer (e.g. from EC2 Instance Connect ephemeral key)
+	DisablePTY         bool       // When true, do not allocate a PTY (equivalent to ssh -T)
+	KnownHostsFile     string     // Custom known_hosts file path (empty = ~/.ssh/known_hosts)
+	ConnectTimeoutSecs int        // Connection timeout in seconds (0 = no timeout)
+	DynamicForward     string     // SOCKS5 dynamic port forwarding bind address (-D flag)
 }
 
 // SSHDirectSession establishes a direct SSH connection to an EC2 instance via SSM
@@ -70,7 +77,7 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 
 	ssmConn := NewSSMConn(c)
 
-	hostKeyCallback, err := buildHostKeyCallback(opts.Target, opts.NoHostKeyCheck)
+	hostKeyCallback, err := buildHostKeyCallback(opts.Target, opts.NoHostKeyCheck, opts.KnownHostsFile)
 	if err != nil {
 		return fmt.Errorf("host key setup failed: %w", err)
 	}
@@ -94,8 +101,21 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 
 	zap.S().Info("SSH connection established")
 
+	// Start SOCKS5 dynamic port forwarding if -D was specified.
+	if opts.DynamicForward != "" {
+		ln, err := startSOCKS5Proxy(client, opts.DynamicForward)
+		if err != nil {
+			return fmt.Errorf("SOCKS5 proxy failed: %w", err)
+		}
+		defer ln.Close()
+		zap.S().Infof("SOCKS5 proxy listening on %s", ln.Addr())
+	}
+
 	if opts.ExecCommand != "" {
 		return runSSHCommand(client, opts.ExecCommand)
+	}
+	if opts.DisablePTY {
+		return runNoPTYSession(client)
 	}
 	return runInteractiveSSHSession(client)
 }
@@ -185,19 +205,24 @@ func promptPassword() (string, error) {
 
 // buildHostKeyCallback returns a host key verification callback. When noCheck is
 // true the callback accepts any key (with a warning). Otherwise it checks
-// ~/.ssh/known_hosts and falls back to a Trust-On-First-Use prompt.
-func buildHostKeyCallback(target string, noCheck bool) (ssh.HostKeyCallback, error) {
+// the known_hosts file and falls back to a Trust-On-First-Use prompt.
+// If customKnownHosts is non-empty, it is used instead of ~/.ssh/known_hosts.
+func buildHostKeyCallback(_ string, noCheck bool, customKnownHosts string) (ssh.HostKeyCallback, error) {
 	if noCheck {
 		zap.S().Warn("host key verification disabled (--no-host-key-check)")
 		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
+	var knownHostsFile string
+	if customKnownHosts != "" {
+		knownHostsFile = customKnownHosts
+	} else {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		knownHostsFile = filepath.Join(homeDir, ".ssh", "known_hosts")
 	}
-
-	knownHostsFile := filepath.Join(homeDir, ".ssh", "known_hosts")
 	if _, err := os.Stat(knownHostsFile); err == nil {
 		knownHostsCb, err := knownhosts.New(knownHostsFile)
 		if err != nil {
@@ -332,6 +357,34 @@ func runInteractiveSSHSession(client *ssh.Client) error {
 	return nil
 }
 
+// runNoPTYSession starts an SSH session without PTY allocation. Stdin, stdout,
+// and stderr are connected directly. This is used when -T is passed (e.g. by
+// VSCode Remote SSH) where the client communicates over raw stdin/stdout.
+func runNoPTYSession(client *ssh.Client) error {
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	session.Stdin = os.Stdin
+	session.Stdout = os.Stdout
+	session.Stderr = os.Stderr
+
+	if err := session.Shell(); err != nil {
+		return fmt.Errorf("start shell: %w", err)
+	}
+
+	if err := session.Wait(); err != nil {
+		var exitErr *ssh.ExitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.ExitStatus())
+		}
+		return err
+	}
+	return nil
+}
+
 // runSSHCommand executes a single command over the SSH connection, streaming
 // stdout/stderr, and exits with the remote command's exit code on failure.
 func runSSHCommand(client *ssh.Client, command string) error {
@@ -353,6 +406,155 @@ func runSSHCommand(client *ssh.Client, command string) error {
 	}
 
 	return nil
+}
+
+// startSOCKS5Proxy starts a minimal SOCKS5 proxy (no-auth, CONNECT only) that
+// forwards connections through the SSH tunnel. bindAddr is either a port number
+// ("1080") or a host:port ("127.0.0.1:1080").
+func startSOCKS5Proxy(client *ssh.Client, bindAddr string) (net.Listener, error) {
+	// Normalize bind address: bare port → 127.0.0.1:port
+	if _, err := strconv.Atoi(bindAddr); err == nil {
+		bindAddr = "127.0.0.1:" + bindAddr
+	}
+
+	ln, err := net.Listen("tcp", bindAddr)
+	if err != nil {
+		return nil, fmt.Errorf("listen %s: %w", bindAddr, err)
+	}
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return // listener closed
+			}
+			go handleSOCKS5Conn(client, conn)
+		}
+	}()
+
+	return ln, nil
+}
+
+// handleSOCKS5Conn handles a single SOCKS5 client connection.
+func handleSOCKS5Conn(client *ssh.Client, conn net.Conn) {
+	defer conn.Close()
+
+	targetAddr, err := socks5Handshake(conn)
+	if err != nil {
+		zap.S().Debugf("SOCKS5 handshake failed: %v", err)
+		return
+	}
+
+	remote, err := client.Dial("tcp", targetAddr)
+	if err != nil {
+		zap.S().Debugf("SOCKS5 dial %s failed: %v", targetAddr, err)
+		// Send connection refused reply
+		_ = socks5SendReply(conn, 0x05) // connection refused
+		return
+	}
+	defer remote.Close()
+
+	// Send success reply
+	if err := socks5SendReply(conn, 0x00); err != nil {
+		return
+	}
+
+	// Bidirectional relay
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(remote, conn)
+	}()
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(conn, remote)
+	}()
+	wg.Wait()
+}
+
+// socks5Handshake performs the SOCKS5 version negotiation and CONNECT request,
+// returning the target address as "host:port".
+func socks5Handshake(conn net.Conn) (string, error) {
+	// --- Version/method negotiation ---
+	// Client sends: VER | NMETHODS | METHODS...
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(conn, header); err != nil {
+		return "", fmt.Errorf("read version header: %w", err)
+	}
+	if header[0] != 0x05 {
+		return "", fmt.Errorf("unsupported SOCKS version: %d", header[0])
+	}
+	nMethods := int(header[1])
+	methods := make([]byte, nMethods)
+	if _, err := io.ReadFull(conn, methods); err != nil {
+		return "", fmt.Errorf("read methods: %w", err)
+	}
+
+	// Reply: no authentication required (0x00)
+	if _, err := conn.Write([]byte{0x05, 0x00}); err != nil {
+		return "", fmt.Errorf("write auth reply: %w", err)
+	}
+
+	// --- CONNECT request ---
+	// Client sends: VER | CMD | RSV | ATYP | DST.ADDR | DST.PORT
+	reqHeader := make([]byte, 4)
+	if _, err := io.ReadFull(conn, reqHeader); err != nil {
+		return "", fmt.Errorf("read request header: %w", err)
+	}
+	if reqHeader[0] != 0x05 {
+		return "", fmt.Errorf("unexpected version in request: %d", reqHeader[0])
+	}
+	if reqHeader[1] != 0x01 { // CONNECT
+		return "", fmt.Errorf("unsupported SOCKS5 command: %d", reqHeader[1])
+	}
+
+	// Parse destination address
+	var host string
+	switch reqHeader[3] { // ATYP
+	case 0x01: // IPv4
+		addr := make([]byte, 4)
+		if _, err := io.ReadFull(conn, addr); err != nil {
+			return "", fmt.Errorf("read IPv4 addr: %w", err)
+		}
+		host = net.IP(addr).String()
+	case 0x03: // Domain name
+		lenBuf := make([]byte, 1)
+		if _, err := io.ReadFull(conn, lenBuf); err != nil {
+			return "", fmt.Errorf("read domain length: %w", err)
+		}
+		domain := make([]byte, lenBuf[0])
+		if _, err := io.ReadFull(conn, domain); err != nil {
+			return "", fmt.Errorf("read domain: %w", err)
+		}
+		host = string(domain)
+	case 0x04: // IPv6
+		addr := make([]byte, 16)
+		if _, err := io.ReadFull(conn, addr); err != nil {
+			return "", fmt.Errorf("read IPv6 addr: %w", err)
+		}
+		host = net.IP(addr).String()
+	default:
+		return "", fmt.Errorf("unsupported address type: %d", reqHeader[3])
+	}
+
+	// Read port (2 bytes, big-endian)
+	portBuf := make([]byte, 2)
+	if _, err := io.ReadFull(conn, portBuf); err != nil {
+		return "", fmt.Errorf("read port: %w", err)
+	}
+	port := binary.BigEndian.Uint16(portBuf)
+
+	return net.JoinHostPort(host, strconv.Itoa(int(port))), nil
+}
+
+// socks5SendReply sends a SOCKS5 reply with the given status code.
+// Uses 0.0.0.0:0 as the bind address (not meaningful for CONNECT).
+func socks5SendReply(conn net.Conn, status byte) error {
+	// VER | REP | RSV | ATYP | BND.ADDR (4 bytes IPv4) | BND.PORT (2 bytes)
+	reply := []byte{0x05, status, 0x00, 0x01, 0, 0, 0, 0, 0, 0}
+	_, err := conn.Write(reply)
+	return err
 }
 
 // handleSSHWindowResize polls the local terminal size every ResizeSleepInterval

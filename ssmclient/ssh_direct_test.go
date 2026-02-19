@@ -1,11 +1,14 @@
 package ssmclient
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -65,7 +68,7 @@ func TestTrySSHAgentAuthBadSock(t *testing.T) {
 // TestBuildHostKeyCallbackNoCheck verifies that the InsecureIgnoreHostKey
 // callback is returned when noCheck is true.
 func TestBuildHostKeyCallbackNoCheck(t *testing.T) {
-	cb, err := buildHostKeyCallback("i-dummy", true)
+	cb, err := buildHostKeyCallback("i-dummy", true, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -180,6 +183,144 @@ func TestHandleSSHWindowResizeSendsChange(t *testing.T) {
 		t.Logf("getWinSize returned error (expected in headless env): %v", err)
 	} else {
 		t.Logf("terminal size: %dx%d", cols, rows)
+	}
+}
+
+// TestSOCKS5HandshakeIPv4 verifies the SOCKS5 handshake correctly parses an
+// IPv4 CONNECT request.
+func TestSOCKS5HandshakeIPv4(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	// Build a SOCKS5 handshake from the client side
+	go func() {
+		// Version negotiation: SOCKS5, 1 method, no-auth
+		client.Write([]byte{0x05, 0x01, 0x00})
+		// Read server's method selection
+		resp := make([]byte, 2)
+		io.ReadFull(client, resp)
+
+		// CONNECT request: VER=5, CMD=CONNECT, RSV=0, ATYP=IPv4
+		var buf bytes.Buffer
+		buf.Write([]byte{0x05, 0x01, 0x00, 0x01})
+		buf.Write(net.ParseIP("10.0.0.1").To4()) // destination IP
+		portBytes := make([]byte, 2)
+		binary.BigEndian.PutUint16(portBytes, 8080)
+		buf.Write(portBytes)
+		client.Write(buf.Bytes())
+	}()
+
+	addr, err := socks5Handshake(server)
+	if err != nil {
+		t.Fatalf("socks5Handshake failed: %v", err)
+	}
+	if addr != "10.0.0.1:8080" {
+		t.Errorf("expected 10.0.0.1:8080, got %s", addr)
+	}
+}
+
+// TestSOCKS5HandshakeDomain verifies the SOCKS5 handshake correctly parses a
+// domain name CONNECT request.
+func TestSOCKS5HandshakeDomain(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	go func() {
+		client.Write([]byte{0x05, 0x01, 0x00})
+		resp := make([]byte, 2)
+		io.ReadFull(client, resp)
+
+		// CONNECT with domain name
+		var buf bytes.Buffer
+		buf.Write([]byte{0x05, 0x01, 0x00, 0x03}) // ATYP=domain
+		domain := "example.com"
+		buf.WriteByte(byte(len(domain)))
+		buf.WriteString(domain)
+		portBytes := make([]byte, 2)
+		binary.BigEndian.PutUint16(portBytes, 443)
+		buf.Write(portBytes)
+		client.Write(buf.Bytes())
+	}()
+
+	addr, err := socks5Handshake(server)
+	if err != nil {
+		t.Fatalf("socks5Handshake failed: %v", err)
+	}
+	if addr != "example.com:443" {
+		t.Errorf("expected example.com:443, got %s", addr)
+	}
+}
+
+// TestSOCKS5HandshakeIPv6 verifies the SOCKS5 handshake correctly parses an
+// IPv6 CONNECT request.
+func TestSOCKS5HandshakeIPv6(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	go func() {
+		client.Write([]byte{0x05, 0x01, 0x00})
+		resp := make([]byte, 2)
+		io.ReadFull(client, resp)
+
+		var buf bytes.Buffer
+		buf.Write([]byte{0x05, 0x01, 0x00, 0x04}) // ATYP=IPv6
+		buf.Write(net.ParseIP("::1").To16())
+		portBytes := make([]byte, 2)
+		binary.BigEndian.PutUint16(portBytes, 22)
+		buf.Write(portBytes)
+		client.Write(buf.Bytes())
+	}()
+
+	addr, err := socks5Handshake(server)
+	if err != nil {
+		t.Fatalf("socks5Handshake failed: %v", err)
+	}
+	if addr != "[::1]:22" {
+		t.Errorf("expected [::1]:22, got %s", addr)
+	}
+}
+
+// TestSOCKS5HandshakeInvalidVersion verifies that a non-SOCKS5 client is rejected.
+func TestSOCKS5HandshakeInvalidVersion(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	go func() {
+		// Send SOCKS4 version
+		client.Write([]byte{0x04, 0x01, 0x00})
+	}()
+
+	_, err := socks5Handshake(server)
+	if err == nil {
+		t.Fatal("expected error for SOCKS4 version")
+	}
+	if !strings.Contains(err.Error(), "unsupported SOCKS version") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestSOCKS5SendReply verifies that socks5SendReply writes the correct bytes.
+func TestSOCKS5SendReply(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	go func() {
+		socks5SendReply(server, 0x00) // success
+	}()
+
+	reply := make([]byte, 10)
+	if _, err := io.ReadFull(client, reply); err != nil {
+		t.Fatalf("read reply: %v", err)
+	}
+
+	expected := []byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}
+	if !bytes.Equal(reply, expected) {
+		t.Errorf("expected %v, got %v", expected, reply)
 	}
 }
 
