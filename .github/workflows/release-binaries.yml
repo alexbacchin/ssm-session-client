@@ -65,7 +65,7 @@ jobs:
           .
 
     - name: Sign Windows binary
-      if: ${{ secrets.WINDOWS_CERT_PFX != '' }}
+      if: secrets.WINDOWS_CERT_PFX != ''
       env:
         CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
         CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
