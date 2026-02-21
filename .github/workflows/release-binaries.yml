@@ -65,23 +65,27 @@ jobs:
           .
 
     - name: Sign Windows binary
-      if: secrets.WINDOWS_CERT_PFX != ''
       env:
         CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
         CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
       run: |
-        echo "$CERT_PFX" | base64 -d > cert.pfx
-        osslsigncode sign \
-          -pkcs12 cert.pfx \
-          -pass "$CERT_PASSWORD" \
-          -n "ssm-session-client" \
-          -i "https://github.com/${{ github.repository }}" \
-          -t "http://timestamp.digicert.com" \
-          -in ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe \
-          -out ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}-signed.exe
-        mv ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}-signed.exe \
-           ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe
-        rm -f cert.pfx
+        if [ -n "$CERT_PFX" ]; then
+          echo "$CERT_PFX" | base64 -d > cert.pfx
+          osslsigncode sign \
+            -pkcs12 cert.pfx \
+            -pass "$CERT_PASSWORD" \
+            -n "ssm-session-client" \
+            -i "https://github.com/${{ github.repository }}" \
+            -t "http://timestamp.digicert.com" \
+            -in ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe \
+            -out ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}-signed.exe
+          mv ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}-signed.exe \
+             ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe
+          rm -f cert.pfx
+          echo "✓ Binary signed successfully"
+        else
+          echo "⚠ Skipping signing - WINDOWS_CERT_PFX secret not set"
+        fi
 
     - name: Generate checksums
       run: |
