@@ -2,7 +2,6 @@ package pkg
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -45,9 +44,11 @@ func GetEC2Password(ctx context.Context, cfg aws.Config, instanceID, privateKeyP
 		return "", err
 	}
 
-	// AWS GetPasswordData always uses PKCS#1 v1.5 encryption; OAEP is not an option here.
+	// AWS GetPasswordData mandates PKCS#1 v1.5; OAEP is not supported.
+	// DecryptPKCS1v15SessionKey cannot replace this because EC2 passwords are variable-length.
+	// The rand parameter is documented as legacy and ignored; nil is correct here.
 	//nolint:staticcheck
-	plaintext, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, encryptedData) //nolint:gosec
+	plaintext, err := rsa.DecryptPKCS1v15(nil, privateKey, encryptedData)
 	if err != nil {
 		return "", fmt.Errorf("decrypting EC2 password: %w", err)
 	}

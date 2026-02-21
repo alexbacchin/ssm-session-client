@@ -27,27 +27,29 @@ The utility can be configured via:
    a. Current folder
    b. User's home folder
    c. Application folder
-2. Environment Variables with the `SCC_` prefix
+2. Environment Variables with the `SSC_` prefix
 3. Command Line parameters
 
 These are the configuration options:
 
 | Description                          | App Config/Flag       | App Env Variable         | AWS SDK Variable                |
 | :----------------------------------: | :-------------------: | :----------------------: | :------------------------------:|
-| Config File Path                     | config                | SCC_CONFIG               | n/a                             |
-| Log Level                            | log-level             | SCC_LOG_LEVEL            | n/a                             |
-| AWS SDK profile name                 | aws-profile           | SCC_AWS_PROFILE          | AWS_PROFILE                     |
-| AWS SDK region name                  | aws-region            | SCC_AWS_REGION           | AWS_REGION or AWS_DEFAULT_REGION|
-| AWS SDK SSO Login (true/false)       | sso-login             | SCC_SSO_LOGIN            | n/a                             |
-| AWS SDK SSO Open Browser (true/false)| sso-open-browser      | SCC_SSO_OPEN_BROWSER     | n/a                             |
-| STS Endpoint                         | sts-endpoint          | SCC_STS_ENDPOINT         | AWS_ENDPOINT_URL_STS            |
-| EC2 Endpoint                         | ec2-endpoint          | SCC_EC2_ENDPOINT         | AWS_ENDPOINT_URL_EC2            |
-| SSM Endpoint                         | ssm-endpoint          | SCC_SSM_ENDPOINT         | AWS_ENDPOINT_URL_SSM            |
-| SSM Messages Endpoint                | ssmmessages-endpoint  | SCC_SSMMESSAGES_ENDPOINT | n/a                             |
-| Proxy URL                            | proxy-url             | SCC_PROXY_URL            | HTTPS_PROXY                     |
-| SSM Session Plugin (true/false)      | ssm-session-plugin    | SCC_SSM_SESSION_PLUGIN   | n/a                             |
-| Auto Reconnect (true/false)          | enable-reconnect      | SCC_ENABLE_RECONNECT     | n/a                             |
-| Max Reconnection Attempts            | max-reconnects        | SCC_MAX_RECONNECTS       | n/a                             |
+| Config File Path                     | config                | SSC_CONFIG               | n/a                             |
+| Log Level                            | log-level             | SSC_LOG_LEVEL            | n/a                             |
+| AWS SDK profile name                 | aws-profile           | SSC_AWS_PROFILE          | AWS_PROFILE                     |
+| AWS SDK region name                  | aws-region            | SSC_AWS_REGION           | AWS_REGION or AWS_DEFAULT_REGION|
+| AWS SDK SSO Login (true/false)       | sso-login             | SSC_SSO_LOGIN            | n/a                             |
+| AWS SDK SSO Open Browser (true/false)| sso-open-browser      | SSC_SSO_OPEN_BROWSER     | n/a                             |
+| STS Endpoint                         | sts-endpoint          | SSC_STS_ENDPOINT         | AWS_ENDPOINT_URL_STS            |
+| EC2 Endpoint                         | ec2-endpoint          | SSC_EC2_ENDPOINT         | AWS_ENDPOINT_URL_EC2            |
+| SSM Endpoint                         | ssm-endpoint          | SSC_SSM_ENDPOINT         | AWS_ENDPOINT_URL_SSM            |
+| SSM Messages Endpoint                | ssmmessages-endpoint  | SSC_SSMMESSAGES_ENDPOINT | n/a                             |
+| Proxy URL                            | proxy-url             | SSC_PROXY_URL            | HTTPS_PROXY                     |
+| SSM Session Plugin (true/false)      | ssm-session-plugin    | SSC_SSM_SESSION_PLUGIN   | n/a                             |
+| Auto Reconnect (true/false)          | enable-reconnect      | SSC_ENABLE_RECONNECT     | n/a                             |
+| Max Reconnection Attempts            | max-reconnects        | SSC_MAX_RECONNECTS       | n/a                             |
+| Target Aliases (config file only)    | aliases               | n/a                      | n/a                             |
+| Target Alias (CLI flag, repeatable)  | --alias name=tag:val  | n/a                      | n/a                             |
 
 ### Remarks
 
@@ -330,7 +332,58 @@ IAM: Requires `ec2:GetPasswordData` permission in addition to SSM session permis
 
 ## Target Lookup
 
-The target can be an instance ID, hostname or even IP address. The app uses a few functions to resolve the target.
+The target can be an instance ID, hostname, IP address, or a named alias. The app resolves the target using the following chain (first match wins):
+
+| Priority | Method | Example input | How it works |
+|----------|--------|---------------|--------------|
+| 1 | **Instance ID** | `i-0abc1234def56789` | Passed through directly |
+| 2 | **Alias** | `devbox` | Looks up the name in the configured alias map and queries EC2 by tag |
+| 3 | **Tag** | `Name:web-server` | Queries EC2 for a running instance with the given tag key:value |
+| 4 | **IP address** | `10.0.1.5` | Queries EC2 by private or public IPv4 address |
+| 5 | **DNS TXT record** | `web.example.com` | Looks up a DNS TXT record expected to contain the instance ID |
+
+### Target Aliases
+
+Aliases map a short name to an EC2 tag key and value. They are useful when you want to refer to an instance by a friendly name without typing the full `tag-name:tag-value` format every time. Unlike the generic tag resolver, an alias lookup **errors if more than one running instance matches**, ensuring the alias always refers to a unique host.
+
+#### Defining aliases in the config file
+
+```yaml
+aliases:
+  devbox:
+    tag-name: Name
+    tag-value: my-devbox
+  prod-web:
+    tag-name: Environment
+    tag-value: production
+```
+
+#### Defining aliases on the command line
+
+Use `--alias name=tag-name:tag-value` (repeatable). CLI aliases are merged with config-file aliases and take precedence over same-named entries.
+
+```shell
+# Single alias
+$ssm-session-client shell devbox --alias devbox=Name:my-devbox
+
+# Multiple aliases
+$ssm-session-client shell prod-web \
+  --alias devbox=Name:my-devbox \
+  --alias prod-web=Environment:production
+
+# Combined with a config file (CLI alias overrides config-file alias of the same name)
+$ssm-session-client shell devbox --config=config.yaml --alias devbox=Name:other-box
+```
+
+#### Using aliases with any command
+
+Once defined, use the alias name as the target for any command:
+
+```shell
+$ssm-session-client shell devbox
+$ssm-session-client ssh-direct ec2-user@devbox
+$ssm-session-client port-forwarding devbox:443 8443
+```
 
 ## Data Channel Encryption
 

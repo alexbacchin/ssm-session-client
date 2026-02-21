@@ -9,10 +9,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 )
 
 const (
@@ -86,12 +86,15 @@ func GenerateEncryptionKeys(client KMSClient, kmsKeyID, sessionID, targetID stri
 		KeyId:         aws.String(kmsKeyID),
 		NumberOfBytes: aws.Int32(dataKeyLength),
 		EncryptionContext: map[string]string{
-			"aws:ssm:SessionId": sessionID + targetID,
+			"aws:ssm:SessionId": sessionID,
+			"aws:ssm:TargetId":  targetID,
 		},
-		KeySpec: types.DataKeySpecAes256,
 	}
 
-	output, err := client.GenerateDataKey(context.Background(), input)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	output, err := client.GenerateDataKey(ctx, input)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("KMS GenerateDataKey: %w", err)
 	}

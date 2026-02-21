@@ -38,3 +38,4 @@ go.work.sum
 *.vsix
 .ssm-session-client.*
 config.yaml
+ssm-session-client

@@ -370,14 +370,24 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 		case HandshakeComplete:
 			if c.handshakeCh != nil {
 				close(c.handshakeCh)
+				// Do NOT nil handshakeCh here: WaitForHandshakeComplete detects
+				// completion via "case <-c.handshakeCh" and needs it non-nil.
 			}
+			// Switch to unbuffered mode so subsequent Output messages are
+			// delivered directly rather than queued waiting for seq=0.
+			c.inMsgBuf = nil
+			c.outMsgBuf = nil
 		default:
-			return nil, fmt.Errorf("UNKNOWN INCOMING MSG PAYLOAD: %s\n%s", m, m.Payload)
+			zap.S().Debugf("ignoring unknown payload type %d for OutputStreamData seq=%d", m.PayloadType, m.SequenceNumber)
 		}
 	case ChannelClosed:
 		payload := new(ChannelClosedPayload)
 		if err := json.Unmarshal(m.Payload, payload); err != nil {
 			return nil, err
+		}
+
+		if payload.Output != "" {
+			zap.S().Infof("session closed: %s", payload.Output)
 		}
 
 		var output []byte
@@ -386,7 +396,8 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 		}
 		return output, io.EOF
 	default:
-		return nil, fmt.Errorf("UNKNOWN MESSAGE TYPE: %+v", m)
+		zap.S().Debugf("ignoring unknown message type: %s seq=%d", m.MessageType, m.SequenceNumber)
+		return nil, nil
 	}
 
 	if err := c.sendAcknowledgeMessage(m); err != nil {
@@ -566,14 +577,15 @@ func (c *SsmDataChannel) processHandshakeRequest(msg *AgentMessage) error {
 	// Store agent version for later use in connection multiplexing decisions
 	c.agentVersion = req.AgentVersion
 
-	payload, err := json.Marshal(c.buildHandshakeResponse(req.RequestedClientActions))
+	resp := c.buildHandshakeResponse(req.RequestedClientActions)
+	payload, err := json.Marshal(resp)
 	if err != nil {
 		return err
 	}
 
 	out := NewAgentMessage()
 	out.MessageType = InputStreamData
-	out.SequenceNumber = msg.SequenceNumber
+	out.SequenceNumber = atomic.AddInt64(&c.seqNum, 1)
 	out.Flags = Data
 	out.PayloadType = HandshakeResponse
 	out.Payload = payload
@@ -612,7 +624,7 @@ func (c *SsmDataChannel) processEncryptionChallenge(msg *AgentMessage) error {
 
 	out := NewAgentMessage()
 	out.MessageType = InputStreamData
-	out.SequenceNumber = msg.SequenceNumber
+	out.SequenceNumber = atomic.AddInt64(&c.seqNum, 1)
 	out.Flags = Data
 	out.PayloadType = EncChallengeResponse
 	out.Payload = payload
@@ -647,7 +659,6 @@ func (c *SsmDataChannel) StartSessionFromDataChannelURL(url string, token string
 
 	// Set up pong handler for health monitoring
 	c.ws.SetPongHandler(func(appData string) error {
-		zap.S().Debugf("received pong from server")
 		return nil
 	})
 
@@ -738,6 +749,7 @@ func (c *SsmDataChannel) handleKMSEncryptionAction(req RequestedClientAction, re
 	client := c.newKMSClient()
 	encryptKey, decryptKey, ciphertextKey, err := GenerateEncryptionKeys(client, kmsReq.KMSKeyId, c.sessionId, c.targetId)
 	if err != nil {
+		zap.S().Warnf("KMS GenerateDataKey failed: %v", err)
 		result.ActionStatus = Failed
 		result.Error = fmt.Sprintf("generate encryption keys: %v", err)
 		return
@@ -787,10 +799,9 @@ func (c *SsmDataChannel) pingLoop() {
 		}
 
 		if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
-			zap.S().Debugf("ping write error (connection may be closed): %v", err)
+			zap.S().Debugf("ping failed, connection may be closed: %v", err)
 			return
 		}
-		zap.S().Debugf("sent ping to server")
 	}
 }
 
