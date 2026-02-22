@@ -1,6 +1,6 @@
 //go:build windows
 
-package pkg
+package session
 
 import (
 	"context"

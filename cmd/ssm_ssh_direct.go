@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"github.com/alexbacchin/ssm-session-client/config"
-	"github.com/alexbacchin/ssm-session-client/pkg"
+	"github.com/alexbacchin/ssm-session-client/session"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -29,8 +29,8 @@ Examples:
   ssm-session-client ssh-direct ec2-user@i-0123456789abcdef0 --instance-connect`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		pkg.InitializeClient()
-		if err := pkg.StartSSHDirectSession(args[0]); err != nil {
+		session.InitializeClient()
+		if err := session.StartSSHDirectSession(args[0]); err != nil {
 			zap.S().Fatal(err)
 		}
 	},

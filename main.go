@@ -7,7 +7,7 @@ import (
 
 	"github.com/alexbacchin/ssm-session-client/cmd"
 	"github.com/alexbacchin/ssm-session-client/config"
-	"github.com/alexbacchin/ssm-session-client/pkg"
+	"github.com/alexbacchin/ssm-session-client/session"
 	"go.uber.org/zap"
 )
 
@@ -21,15 +21,15 @@ func main() {
 
 	// When invoked with OpenSSH-style arguments (e.g. via VSCode Remote SSH
 	// setting remote.SSH.path), bypass cobra and handle directly.
-	if pkg.IsSSHCompatMode(os.Args) {
+	if session.IsSSHCompatMode(os.Args) {
 		// Handle -V (version query used by VSCode Remote SSH)
-		if pkg.HasVersionFlag(os.Args[1:]) {
+		if session.HasVersionFlag(os.Args[1:]) {
 			fmt.Fprintln(os.Stdout, "OpenSSH_9.0 ssm-session-client")
 			return
 		}
 		// Load config file and SSC_ environment variables
 		cmd.LoadConfig("")
-		if err := pkg.RunSSHCompat(os.Args[1:]); err != nil {
+		if err := session.RunSSHCompat(os.Args[1:]); err != nil {
 			zap.S().Fatal(err)
 		}
 		return

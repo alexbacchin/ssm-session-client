@@ -1,4 +1,4 @@
-package pkg
+package session
 
 import (
 	"context"
@@ -8,32 +8,25 @@ import (
 	"go.uber.org/zap"
 )
 
-// StartSSHSession starts a SSH session using AWS SSM.
-func StartSSHSession(target string) error {
-	_, host, port, err := ParseHostPort(target, "ec2-user", 22)
-	if err != nil {
-		zap.S().Fatal(err)
-	}
+// StartSSMShell starts a shell session using AWS SSM
+func StartSSMShell(target string) error {
 
 	ssmcfg, err := BuildAWSConfig(context.Background(), "ssm")
 	if err != nil {
 		zap.S().Fatal(err)
 	}
-	tgt, err := ssmclient.ResolveTarget(host, ssmcfg)
+	tgt, err := ssmclient.ResolveTarget(target, ssmcfg)
 	if err != nil {
 		zap.S().Fatal(err)
 	}
 
-	in := ssmclient.PortForwardingInput{
-		Target:     tgt,
-		RemotePort: port,
-	}
 	ssmMessagesCfg, err := BuildAWSConfig(context.Background(), "ssmmessages")
 	if err != nil {
 		zap.S().Fatal(err)
 	}
 	if config.Flags().UseSSMSessionPlugin {
-		return ssmclient.SSHPluginSession(ssmMessagesCfg, &in)
+		return ssmclient.ShellPluginSession(ssmMessagesCfg, tgt)
 	}
-	return ssmclient.SSHSession(ssmMessagesCfg, &in)
+	return ssmclient.ShellSession(ssmMessagesCfg, tgt)
+
 }

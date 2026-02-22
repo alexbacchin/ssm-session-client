@@ -1,6 +1,6 @@
 //Source: github.com/peterHoburg/aws-sdk-go-v2-sso-login
 
-package pkg
+package session
 
 import (
 	"context"

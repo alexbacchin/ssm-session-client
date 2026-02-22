@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/alexbacchin/ssm-session-client/config"
-	"github.com/alexbacchin/ssm-session-client/pkg"
+	"github.com/alexbacchin/ssm-session-client/session"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -36,8 +36,8 @@ Examples:
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		pkg.InitializeClient()
-		return pkg.StartRDPSession(args[0])
+		session.InitializeClient()
+		return session.StartRDPSession(args[0])
 	},
 }
 

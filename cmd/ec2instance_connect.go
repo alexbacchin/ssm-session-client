@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"github.com/alexbacchin/ssm-session-client/config"
-	"github.com/alexbacchin/ssm-session-client/pkg"
+	"github.com/alexbacchin/ssm-session-client/session"
 	"github.com/spf13/cobra"
 )
 
@@ -15,8 +15,8 @@ var ec2InstanceConnectCmd = &cobra.Command{
 		if len(args) == 0 {
 			return cmd.Help()
 		}
-		pkg.InitializeClient()
-		pkg.StartEC2InstanceConnect(args[0])
+		session.InitializeClient()
+		session.StartEC2InstanceConnect(args[0])
 		return nil
 	},
 }
