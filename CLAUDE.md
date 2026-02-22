@@ -35,7 +35,7 @@ golangci-lint run
 - **`main.go`** — Detects OpenSSH-compat mode (for VSCode Remote SSH) and routes to either the SSH compat handler or the Cobra CLI dispatcher.
 - **`cmd/`** — Cobra command definitions. Each command parses flags, loads config via Viper, then delegates to `pkg/`.
 - **`config/`** — Config struct (35+ fields), Viper binding (flags → env vars → YAML file), and zap logger setup with lumberjack rotation.
-- **`pkg/`** — Business logic: AWS SDK initialization (`client.go`), SSO device-code login (`sso.go`), OpenSSH arg parsing for compat mode, EC2 Instance Connect ephemeral key management, and per-command orchestration (`ssm_shell.go`, `ssm_ssh_direct.go`, etc.).
+- **`session/`** — Business logic: AWS SDK initialization (`client.go`), SSO device-code login (`sso.go`), OpenSSH arg parsing for compat mode, EC2 Instance Connect ephemeral key management, and per-command orchestration (`ssm_shell.go`, `ssm_ssh_direct.go`, etc.).
 - **`ssmclient/`** — Core SSM session implementations:
   - `target_resolver.go`: Resolves targets via 5 strategies: direct instance ID, alias, tag lookup, IP address, and DNS TXT record.
   - `ssm_conn.go`: Bridges the SSM data channel to a `net.Conn` using `net.Pipe()` for SSH transport.
@@ -49,7 +49,7 @@ golangci-lint run
 
 ### Key Data Flows
 
-**Shell:** `cmd/ssm_shell.go` → `pkg/ssm_shell.go` → `ssmclient/target_resolver.go` → `ssmclient/shell.go` → `datachannel/data_channel.go` (WebSocket to AWS SSM StartSession API)
+**Shell:** `cmd/ssm_shell.go` → `session/ssm_shell.go` → `ssmclient/target_resolver.go` → `ssmclient/shell.go` → `datachannel/data_channel.go` (WebSocket to AWS SSM StartSession API)
 
 **SSH-Direct:** same start → `ssmclient/ssh_direct.go` → `ssmclient/ssm_conn.go` (net.Pipe bridge) → `golang.org/x/crypto/ssh` client
 
