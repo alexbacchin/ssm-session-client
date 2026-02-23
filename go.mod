@@ -4,10 +4,10 @@ go 1.24.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1
-	github.com/aws/aws-sdk-go-v2/config v1.32.7
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.286.0
+	github.com/aws/aws-sdk-go-v2/config v1.32.9
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.290.0
 	github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect v1.32.16
-	github.com/aws/aws-sdk-go-v2/service/ssm v1.67.8
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.6
 	github.com/aws/session-manager-plugin v0.0.0-20251119232423-83812b6d1d99
 	github.com/aws/smithy-go v1.24.0
@@ -20,9 +20,9 @@ require (
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.7
-	github.com/aws/aws-sdk-go-v2/service/sso v1.30.9
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.13
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.9
+	github.com/aws/aws-sdk-go-v2/service/sso v1.30.10
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.14
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	go.uber.org/zap v1.27.1
 	gopkg.in/ini.v1 v1.67.1
