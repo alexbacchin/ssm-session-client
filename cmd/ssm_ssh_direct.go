@@ -43,10 +43,12 @@ func init() {
 	ssmSshDirectCmd.Flags().BoolVar(&config.Flags().NoHostKeyCheck, "no-host-key-check", false, "Skip host key verification (warning: disables MITM protection)")
 	ssmSshDirectCmd.Flags().StringVar(&config.Flags().SSHExecCommand, "exec", "", "Execute command instead of starting an interactive shell")
 	ssmSshDirectCmd.Flags().BoolVar(&config.Flags().UseInstanceConnect, "instance-connect", false, "Push a temporary SSH key via EC2 Instance Connect (no key files needed)")
+	ssmSshDirectCmd.Flags().BoolVar(&config.Flags().NoInstanceConnect, "no-instance-connect", false, "Disable EC2 Instance Connect even if enabled in config file")
 
 	// Bind flags to Viper so preRun's viper.Unmarshal preserves their values.
 	viper.BindPFlag("ssh-key-file", ssmSshDirectCmd.Flags().Lookup("ssh-key"))                    //nolint:errcheck
 	viper.BindPFlag("no-host-key-check", ssmSshDirectCmd.Flags().Lookup("no-host-key-check"))     //nolint:errcheck
 	viper.BindPFlag("ssh-exec-command", ssmSshDirectCmd.Flags().Lookup("exec"))                   //nolint:errcheck
 	viper.BindPFlag("instance-connect", ssmSshDirectCmd.Flags().Lookup("instance-connect"))       //nolint:errcheck
+	viper.BindPFlag("no-instance-connect", ssmSshDirectCmd.Flags().Lookup("no-instance-connect")) //nolint:errcheck
 }

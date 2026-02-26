@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,6 +95,7 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 	sshAddr := net.JoinHostPort(opts.Target, port)
 	sshConn, chans, reqs, err := ssh.NewClientConn(&ssmAddrConn{Conn: ssmConn, addr: ssmAddr(sshAddr)}, sshAddr, sshConfig)
 	if err != nil {
+		printSSHAuthDiagnostic(err, opts)
 		return fmt.Errorf("SSH connection failed: %w", err)
 	}
 	client := ssh.NewClient(sshConn, chans, reqs)
@@ -126,22 +128,51 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 // Order: ephemeral key → SSH agent → private key file → password prompt.
 func buildSSHAuthMethods(keyFile string, ephemeral ssh.Signer) []ssh.AuthMethod {
 	var methods []ssh.AuthMethod
+	var methodNames []string
 
 	if ephemeral != nil {
 		methods = append(methods, ssh.PublicKeys(ephemeral))
+		methodNames = append(methodNames, "instance-connect-ephemeral-key")
 	}
 
 	if method := trySSHAgentAuth(); method != nil {
 		methods = append(methods, method)
+		methodNames = append(methodNames, "ssh-agent")
 	}
 
 	if signer, err := loadSSHPrivateKey(keyFile); err == nil {
 		methods = append(methods, ssh.PublicKeys(signer))
+		methodNames = append(methodNames, "private-key-file")
+	} else if keyFile != "" {
+		zap.S().Warnf("failed to load SSH private key %q: %v", keyFile, err)
 	}
 
 	methods = append(methods, ssh.PasswordCallback(promptPassword))
+	methodNames = append(methodNames, "password-prompt")
 
+	zap.S().Infof("SSH auth methods: %v", methodNames)
 	return methods
+}
+
+// printSSHAuthDiagnostic prints a human-readable diagnostic to stderr when SSH
+// authentication fails, helping users identify infrastructure issues without
+// needing to dig through log files.
+func printSSHAuthDiagnostic(err error, opts *SSHDirectInput) {
+	if !strings.Contains(err.Error(), "unable to authenticate") {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "\n--- SSH Authentication Failed ---")
+	fmt.Fprintf(os.Stderr, "Target: %s | User: %s\n", opts.Target, opts.User)
+	if opts.EphemeralSigner != nil {
+		fmt.Fprintln(os.Stderr, "  [x] EC2 Instance Connect ephemeral key was provided")
+		fmt.Fprintln(os.Stderr, "      Check: Is the EC2 Instance Connect agent installed and running on the target?")
+		fmt.Fprintln(os.Stderr, "      Check: Does the OS user '"+opts.User+"' exist on the instance?")
+	}
+	if opts.KeyFile != "" {
+		fmt.Fprintf(os.Stderr, "  [x] Private key file: %s\n", opts.KeyFile)
+	}
+	fmt.Fprintln(os.Stderr, "Enable debug logging (--log-level debug) for full details.")
+	fmt.Fprintln(os.Stderr, "---------------------------------")
 }
 
 // trySSHAgentAuth returns an SSH auth method backed by the running SSH agent, or

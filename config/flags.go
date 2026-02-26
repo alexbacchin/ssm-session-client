@@ -26,6 +26,7 @@ type Config struct {
 	NoHostKeyCheck         bool   `mapstructure:"no-host-key-check"`
 	SSHExecCommand         string `mapstructure:"ssh-exec-command"`
 	UseInstanceConnect     bool   `mapstructure:"instance-connect"`
+	NoInstanceConnect      bool   `mapstructure:"no-instance-connect"`
 	RDPPort                int    `mapstructure:"rdp-port"`
 	RDPLocalPort           int    `mapstructure:"rdp-local-port"`
 	RDPGetPassword         bool   `mapstructure:"rdp-get-password"`

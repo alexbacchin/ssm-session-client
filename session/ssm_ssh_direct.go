@@ -41,7 +41,7 @@ func StartSSHDirectSession(target string) error {
 		ExecCommand:    config.Flags().SSHExecCommand,
 	}
 
-	if config.Flags().UseInstanceConnect {
+	if config.Flags().UseInstanceConnect && !config.Flags().NoInstanceConnect {
 		if err := prepareInstanceConnect(context.Background(), tgt, user, opts); err != nil {
 			return err
 		}

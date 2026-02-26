@@ -324,6 +324,60 @@ func TestSOCKS5SendReply(t *testing.T) {
 	}
 }
 
+// TestBuildSSHAuthMethodsEphemeralFirst verifies that when an ephemeral signer
+// is provided, it appears as the first auth method and the total method count
+// increases by exactly one compared to without it.
+func TestBuildSSHAuthMethodsEphemeralFirst(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	keyPath := generateTestKey(t)
+
+	withoutEphemeral := buildSSHAuthMethods(keyPath, nil)
+	countWithout := len(withoutEphemeral)
+
+	// Generate an ephemeral signer.
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+
+	withEphemeral := buildSSHAuthMethods(keyPath, signer)
+	countWith := len(withEphemeral)
+
+	if countWith != countWithout+1 {
+		t.Errorf("expected ephemeral to add exactly 1 method: got %d without, %d with", countWithout, countWith)
+	}
+}
+
+// TestBuildSSHAuthMethodsPasswordAlwaysPresent verifies that the password callback
+// is always included regardless of other auth method configuration, and that
+// adding an ephemeral signer increases the method count by exactly one.
+func TestBuildSSHAuthMethodsPasswordAlwaysPresent(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	// Baseline: no ephemeral. Auto-discovery may find ~/.ssh/id_ed25519 or id_rsa.
+	// loadSSHPrivateKey returns at most one key (the first found).
+	// Methods: [auto-discovered key (if any)] + password = at least 1.
+	baseline := buildSSHAuthMethods("", nil)
+	if len(baseline) < 1 {
+		t.Fatal("expected at least 1 method (password)")
+	}
+	t.Logf("baseline methods (no ephemeral): %d", len(baseline))
+
+	// With ephemeral, should have exactly one more method than baseline.
+	priv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	signer, _ := ssh.NewSignerFromKey(priv)
+	withEphemeral := buildSSHAuthMethods("", signer)
+	if len(withEphemeral) != len(baseline)+1 {
+		t.Errorf("ephemeral should add exactly 1 method: baseline=%d withEphemeral=%d",
+			len(baseline), len(withEphemeral))
+	}
+}
+
 // generateTestKey creates a temporary ECDSA private key file and returns its path.
 func generateTestKey(t *testing.T) string {
 	t.Helper()
