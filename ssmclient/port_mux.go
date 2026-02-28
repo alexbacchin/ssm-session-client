@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 
 	"github.com/alexbacchin/ssm-session-client/datachannel"
 	"github.com/xtaci/smux"
@@ -30,9 +31,10 @@ func startMuxPortForwarding(ctx context.Context, c *datachannel.SsmDataChannel, 
 	// Create smux client session
 	muxSession, err := smux.Client(localConn, smuxConfig)
 	if err != nil {
+		localConn.Close()
+		pipeConn.Close()
 		return fmt.Errorf("create smux session: %w", err)
 	}
-	defer muxSession.Close()
 
 	// Start bridge goroutines between data channel and smux pipe
 	errCh := make(chan error, 2)
@@ -87,13 +89,31 @@ func startMuxPortForwarding(ctx context.Context, c *datachannel.SsmDataChannel, 
 	select {
 	case <-ctx.Done():
 		zap.S().Info("mux session context cancelled")
-		return nil
-	case err := <-errCh:
+	case err = <-errCh:
 		if err != nil && err != io.EOF {
-			return fmt.Errorf("bridge error: %w", err)
+			zap.S().Warnf("bridge error: %v", err)
 		}
-		return nil
+		err = nil
 	}
+
+	// Close the pipe to unblock bridge goroutines. The WriteTo goroutine
+	// blocked on websocket read will unblock when the caller closes the
+	// data channel (after TerminateSession).
+	pipeConn.Close()
+	localConn.Close()
+
+	// Close the mux session (also closes localConn, but double-close is safe)
+	muxSession.Close()
+
+	// Drain the second bridge goroutine with a short timeout so we don't
+	// block shutdown indefinitely.
+	select {
+	case <-errCh:
+	case <-time.After(2 * time.Second):
+		zap.S().Debug("timed out waiting for bridge goroutine to exit")
+	}
+
+	return err
 }
 
 // handleMuxConnection handles a single TCP connection over a smux stream.

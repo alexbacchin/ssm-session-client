@@ -130,6 +130,7 @@ func (c *SsmDataChannel) WaitForHandshakeComplete(ctx context.Context) error {
 			c.inMsgBuf = nil
 			c.outMsgBuf = nil
 			c.handshakeCh = nil
+			zap.S().Debug("handshake complete")
 			return nil
 		case <-ctx.Done():
 			c.inMsgBuf = nil
@@ -140,6 +141,12 @@ func (c *SsmDataChannel) WaitForHandshakeComplete(ctx context.Context) error {
 			n, err := c.Read(buf)
 			if err != nil {
 				return err
+			}
+
+			m := new(AgentMessage)
+			if uerr := m.UnmarshalBinary(buf[:n]); uerr == nil {
+				zap.S().Debugf("handshake recv: type=%s flags=%d seq=%d payloadType=%d len=%d",
+					m.MessageType, m.Flags, m.SequenceNumber, m.PayloadType, len(m.Payload))
 			}
 
 			if _, err = c.HandleMsg(buf[:n]); err != nil {
@@ -262,7 +269,10 @@ func (c *SsmDataChannel) Write(payload []byte) (int, error) {
 // This is provided as a convenience so that messages types not already handled can be sent. If the message
 // SequenceNumber field is less than 0, it will be automatically incremented using the internal counter.
 func (c *SsmDataChannel) WriteMsg(msg *AgentMessage) (int, error) {
-	if !c.synSent {
+	// Only set the SYN flag on the first non-Acknowledge message.
+	// Acks (e.g. for StartPublication) must keep their Ack flag — Windows SSM agents
+	// reject SYN-flagged acks and the handshake stalls.
+	if !c.synSent && msg.MessageType != Acknowledge {
 		atomic.StoreInt64(&c.seqNum, 0)
 		msg.Flags = Syn
 		msg.SequenceNumber = c.seqNum
@@ -272,6 +282,9 @@ func (c *SsmDataChannel) WriteMsg(msg *AgentMessage) (int, error) {
 		atomic.StoreInt64(&c.seqNum, 1)
 	}
 
+	zap.S().Debugf("WriteMsg: type=%s flags=%d seq=%d payloadType=%d len=%d",
+		msg.MessageType, msg.Flags, msg.SequenceNumber, msg.PayloadType, len(msg.Payload))
+
 	data, err := msg.MarshalBinary()
 	if err != nil {
 		return 0, err
@@ -279,7 +292,9 @@ func (c *SsmDataChannel) WriteMsg(msg *AgentMessage) (int, error) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.synSent = true
+	if msg.MessageType != Acknowledge {
+		c.synSent = true
+	}
 
 	if c.outMsgBuf != nil && msg.MessageType != Acknowledge && msg.PayloadType != HandshakeResponse {
 		err = c.outMsgBuf.Add(msg)
@@ -542,6 +557,9 @@ func (c *SsmDataChannel) processOutboundQueue() {
 // sendAcknowledgeMessage sends the Acknowledge message type for each incoming message read from
 // the web socket connection, which is required as part of the SSM session protocol.
 func (c *SsmDataChannel) sendAcknowledgeMessage(msg *AgentMessage) error {
+	zap.S().Debugf("sendAck: for type=%s seq=%d msgId=%s",
+		msg.MessageType, msg.SequenceNumber, msg.messageID.String())
+
 	ack := map[string]interface{}{
 		"AcknowledgedMessageType":           msg.MessageType,
 		"AcknowledgedMessageId":             msg.messageID.String(),
