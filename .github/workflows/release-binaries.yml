@@ -1,8 +1,9 @@
 name: binaries
 
+# This workflow is kept for ad-hoc re-builds of an existing release.
+# The primary release pipeline is .github/workflows/release.yml which
+# runs acceptance tests before creating a release and building binaries.
 on:
-  release:
-    types: [created]
   workflow_dispatch:
 
 jobs:
