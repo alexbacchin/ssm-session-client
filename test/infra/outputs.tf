@@ -38,11 +38,6 @@ output "kms_key_arn" {
   value       = var.create_kms_key ? aws_kms_key.test[0].arn : ""
 }
 
-output "test_runner_policy_arn" {
-  description = "ARN of the IAM policy that grants the minimum permissions needed to run the acceptance tests."
-  value       = aws_iam_policy.test_runner.arn
-}
-
 output "windows_instance_id" {
   description = "Windows Server test instance ID (empty if create_windows_instance=false)."
   value       = var.create_windows_instance ? aws_instance.windows_test[0].id : ""

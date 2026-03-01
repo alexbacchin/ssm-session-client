@@ -65,6 +65,7 @@ func init() {
 	viper.BindPFlag("ssmmessages-endpoint", rootCmd.PersistentFlags().Lookup("ssmmessages-endpoint"))
 	viper.BindPFlag("ssm-session-plugin", rootCmd.PersistentFlags().Lookup("ssm-session-plugin"))
 	viper.BindPFlag("sso-login", rootCmd.PersistentFlags().Lookup("sso-login"))
+	viper.BindPFlag("sso-open-browser", rootCmd.PersistentFlags().Lookup("sso-open-browser"))
 	viper.BindPFlag("proxy-url", rootCmd.PersistentFlags().Lookup("proxy-url"))
 	viper.BindPFlag("log-level", rootCmd.PersistentFlags().Lookup("log-level"))
 	viper.BindPFlag("enable-reconnect", rootCmd.PersistentFlags().Lookup("enable-reconnect"))

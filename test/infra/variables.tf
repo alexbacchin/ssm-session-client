@@ -22,18 +22,6 @@ variable "name_prefix" {
   default     = "ssm-session-client-test"
 }
 
-variable "github_org" {
-  description = "GitHub organisation name for OIDC trust policy (leave empty to skip OIDC role creation)."
-  type        = string
-  default     = ""
-}
-
-variable "github_repo" {
-  description = "GitHub repository name for OIDC trust policy."
-  type        = string
-  default     = "ssm-session-client"
-}
-
 variable "create_dns_record" {
   description = "Create a Route53 private hosted zone with a TXT record for DNS-resolver tests."
   type        = bool

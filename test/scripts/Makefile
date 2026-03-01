@@ -10,7 +10,10 @@ SSM_POLL_SECS  ?= 10
 TF_CMD         ?= $(shell command -v tofu 2>/dev/null || echo "terraform")
 TF_EXTRA_VARS  ?=
 
-.PHONY: acceptance-prepare acceptance-wait-ssm acceptance-run-local acceptance-run-ci acceptance-destroy acceptance help
+SSO_PROFILE        ?=
+SSO_TEST_TIMEOUT   ?= 10
+
+.PHONY: acceptance-prepare acceptance-wait-ssm acceptance-run-local acceptance-run-ci acceptance-destroy acceptance acceptance-sso-interactive help
 
 help: ## Show this help message.
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -60,6 +63,22 @@ acceptance-run-local: ## Run acceptance tests locally (requires infra to be prov
 
 acceptance-run-ci: ## Run acceptance tests in CI (identical to local; relies on OIDC credentials).
 	$(MAKE) acceptance-run-local
+
+acceptance-sso-interactive: ## Run interactive SSO login test (requires a human to approve in a browser).
+	@if [ -z "$(SSO_PROFILE)" ]; then \
+		echo "ERROR: SSO_PROFILE is required.  Usage: make acceptance-sso-interactive SSO_PROFILE=my-sso-profile" >&2; \
+		exit 1; \
+	fi
+	cd $(TEST_DIR)/.. && \
+		SSC_SSO_TEST_PROFILE=$(SSO_PROFILE) \
+		SSC_SSO_TEST_INTERACTIVE=1 \
+		SSC_SSO_TEST_TIMEOUT=$(SSO_TEST_TIMEOUT) \
+		go test ./test/acceptance/... \
+			-tags acceptance \
+			-v \
+			-timeout $$(( $(SSO_TEST_TIMEOUT) + 5 ))m \
+			-count=1 \
+			-run TestSSOLoginInteractive
 
 acceptance-destroy: ## Tear down all test infrastructure (always runs even on failure).
 	cd $(INFRA_DIR) && \
