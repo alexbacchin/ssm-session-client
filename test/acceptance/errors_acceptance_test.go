@@ -58,6 +58,8 @@ func TestSessionTermination(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binaryPath, //nolint:gosec
+		"--config", "/dev/null",
+		"--log-level", "debug",
 		"--aws-region", i.AWSRegion,
 		"--enable-reconnect=false",
 		"ssh-direct", "--instance-connect", "--no-host-key-check",

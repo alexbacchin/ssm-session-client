@@ -13,7 +13,7 @@ permissions:
 env:
   GO_VERSION_FILE: go.mod
   TF_VERSION: "1.9"
-  AWS_REGION: ap-southeast-2
+  AWS_REGION: us-west-2
   MAKEFILE: test/scripts/Makefile
 
 jobs:
@@ -46,6 +46,11 @@ jobs:
     needs: unit-tests
     runs-on: ubuntu-latest
 
+    env:
+      # Sanitise the tag for use in resource names (e.g. v1.2.3-rc1 → v1-2-3-rc1).
+      NAME_PREFIX: ssc-rel-${{ github.ref_name }}
+      TF_STATE_KEY: acceptance/release-${{ github.ref_name }}/terraform.tfstate
+
     steps:
       - uses: actions/checkout@v4
 
@@ -55,10 +60,10 @@ jobs:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache: true
 
-      - name: Set up OpenTofu ${{ env.TF_VERSION }}
-        uses: opentofu/setup-opentofu@v1
+      - name: Set up Terraform ${{ env.TF_VERSION }}
+        uses: hashicorp/setup-terraform@v3
         with:
-          tofu_version: ${{ env.TF_VERSION }}
+          terraform_version: ${{ env.TF_VERSION }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -66,9 +71,21 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ACCEPTANCE_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Set Terraform state bucket
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "TF_STATE_BUCKET=ssm-session-client-tfstate-${ACCOUNT_ID}-${AWS_REGION}" >> "$GITHUB_ENV"
+          # Sanitise name_prefix: lowercase, replace dots/underscores with hyphens, truncate.
+          SAFE_PREFIX=$(echo "${{ env.NAME_PREFIX }}" | tr '[:upper:].' '[:lower:]-' | cut -c1-40)
+          echo "SAFE_NAME_PREFIX=${SAFE_PREFIX}" >> "$GITHUB_ENV"
+
       - name: Provision infrastructure
         id: tf_apply
-        run: make -f ${{ env.MAKEFILE }} acceptance-prepare AWS_REGION=${{ env.AWS_REGION }}
+        run: >
+          make -f ${{ env.MAKEFILE }} acceptance-prepare
+          AWS_REGION=${{ env.AWS_REGION }}
+          TF_STATE_KEY=${{ env.TF_STATE_KEY }}
+          TF_EXTRA_VARS='-var="name_prefix=${{ env.SAFE_NAME_PREFIX }}"'
 
       - name: Wait for SSM agent
         run: make -f ${{ env.MAKEFILE }} acceptance-wait-ssm AWS_REGION=${{ env.AWS_REGION }}
@@ -78,7 +95,11 @@ jobs:
 
       - name: Destroy infrastructure (always runs)
         if: always() && steps.tf_apply.outcome != 'skipped'
-        run: make -f ${{ env.MAKEFILE }} acceptance-destroy AWS_REGION=${{ env.AWS_REGION }}
+        run: >
+          make -f ${{ env.MAKEFILE }} acceptance-destroy
+          AWS_REGION=${{ env.AWS_REGION }}
+          TF_STATE_KEY=${{ env.TF_STATE_KEY }}
+          TF_EXTRA_VARS='-var="name_prefix=${{ env.SAFE_NAME_PREFIX }}"'
 
   # ---------------------------------------------------------------------------
   # Stage 3: Create GitHub release (after all tests pass)

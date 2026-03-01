@@ -82,6 +82,8 @@ func infraWindows(t *testing.T) InfraOutputs {
 func startRDPCommand(t *testing.T, i InfraOutputs, localPort int, getPassword bool) context.CancelFunc {
 	t.Helper()
 	args := []string{
+		"--config", "/dev/null",
+		"--log-level", "debug",
 		"--aws-region", i.AWSRegion,
 		"rdp",
 		"--local-port", strconv.Itoa(localPort),

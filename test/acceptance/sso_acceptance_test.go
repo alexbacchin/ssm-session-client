@@ -160,7 +160,11 @@ func runCmdStreaming(t *testing.T, timeout time.Duration, env []string, args ...
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	fullArgs := append([]string{"--aws-region", globalInfraOutputs.AWSRegion}, args...)
+	fullArgs := append([]string{
+		"--config", "/dev/null",
+		"--log-level", "debug",
+		"--aws-region", globalInfraOutputs.AWSRegion,
+	}, args...)
 	cmd := exec.CommandContext(ctx, binaryPath, fullArgs...) //nolint:gosec
 	if env != nil {
 		cmd.Env = env

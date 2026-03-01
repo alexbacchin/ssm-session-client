@@ -5,7 +5,7 @@
 # and IAM role needed for the acceptance test workflow.
 #
 # These are long-lived resources — run once per AWS account, not on every
-# tofu apply/destroy cycle.
+# terraform apply/destroy cycle.
 #
 # Usage:
 #   AWS_REGION=ap-southeast-2 \
@@ -168,21 +168,8 @@ INLINE_POLICY_DOCUMENT=$(cat <<EOF
       "Sid": "EC2TestRunner",
       "Effect": "Allow",
       "Action": [
-        "ec2:DescribeInstances",
-        "ec2:DescribeInstanceStatus",
-        "ec2:DescribeVpcs",
-        "ec2:DescribeSubnets",
-        "ec2:DescribeSecurityGroups",
-        "ec2:DescribeKeyPairs",
-        "ec2:DescribeVpcEndpoints",
-        "ec2:DescribeVpcEndpointServices",
-        "ec2:DescribeNetworkInterfaces",
-        "ec2:DescribeAvailabilityZones",
-        "ec2:DescribeTags",
-        "ec2:GetPasswordData",
-        "ec2:DescribeVpcAttribute",
-        "ec2:DescribeInstanceTypes"
-        
+        "ec2:Describe*",
+        "ec2:GetPasswordData"
       ],
       "Resource": "*"
     },
@@ -245,6 +232,7 @@ INLINE_POLICY_DOCUMENT=$(cat <<EOF
         "iam:GetInstanceProfile",
         "iam:AddRoleToInstanceProfile",
         "iam:RemoveRoleFromInstanceProfile",
+        "iam:ListInstanceProfilesForRole",
         "iam:PassRole"
       ],
       "Resource": "*"

@@ -7,7 +7,7 @@ TEST_DIR       := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))/..
 OUTPUTS_JSON   := $(INFRA_DIR)/outputs.json
 SSM_WAIT_SECS  ?= 300
 SSM_POLL_SECS  ?= 10
-TF_CMD         ?= $(shell command -v tofu 2>/dev/null || echo "terraform")
+TF_CMD         ?= $(shell command -v terraform 2>/dev/null || echo "tofu")
 TF_EXTRA_VARS  ?=
 
 # S3 backend for Terraform state.
@@ -15,9 +15,10 @@ TF_EXTRA_VARS  ?=
 # this via a "Set Terraform state bucket" step after OIDC auth).  Locally it
 # is computed from the current AWS caller identity.
 TF_STATE_BUCKET ?= ssm-session-client-tfstate-$(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)-$(AWS_REGION)
+TF_STATE_KEY    ?= acceptance/terraform.tfstate
 TF_BACKEND_FLAGS = \
 	-backend-config="bucket=$(TF_STATE_BUCKET)" \
-	-backend-config="key=acceptance/terraform.tfstate" \
+	-backend-config="key=$(TF_STATE_KEY)" \
 	-backend-config="region=$(AWS_REGION)" \
 	-backend-config="encrypt=true"
 

@@ -141,7 +141,11 @@ func runCmd(t *testing.T, timeout time.Duration, args ...string) (stdout, stderr
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	fullArgs := append([]string{"--aws-region", globalInfraOutputs.AWSRegion}, args...)
+	fullArgs := append([]string{
+		"--config", "/dev/null",
+		"--log-level", "debug",
+		"--aws-region", globalInfraOutputs.AWSRegion,
+	}, args...)
 	cmd := exec.CommandContext(ctx, binaryPath, fullArgs...) //nolint:gosec
 
 	var outBuf, errBuf strings.Builder

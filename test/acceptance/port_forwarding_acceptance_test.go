@@ -121,6 +121,8 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int)
 		"--enable-reconnect=false",
 		"port-forwarding", target, strconv.Itoa(localPort),
 	}
+	// Note: --config and --log-level are also added by runCmd, but startPortForwarder
+	// uses exec.CommandContext directly, so these are needed here.
 
 	const maxAttempts = 3
 	const handshakeTimeout = 30 * time.Second

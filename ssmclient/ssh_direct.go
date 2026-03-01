@@ -83,10 +83,16 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 		return fmt.Errorf("host key setup failed: %w", err)
 	}
 
+	sshTimeout := 30 * time.Second
+	if opts.ConnectTimeoutSecs > 0 {
+		sshTimeout = time.Duration(opts.ConnectTimeoutSecs) * time.Second
+	}
+
 	sshConfig := &ssh.ClientConfig{
 		User:            opts.User,
 		Auth:            buildSSHAuthMethods(opts.KeyFile, opts.EphemeralSigner),
 		HostKeyCallback: hostKeyCallback,
+		Timeout:         sshTimeout,
 	}
 
 	// ssh.NewClientConn requires host:port so knownhosts can normalize the address.
