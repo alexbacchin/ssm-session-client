@@ -42,6 +42,9 @@
       <ul>
         <li>
           <a href="#overview">Overview</a>
+          <ul>
+            <li><a href="#restricted-environments">Restricted Environments</a></li>
+          </ul>
         </li>
         <li>
           <a href="#install">Install</a>
@@ -50,6 +53,7 @@
             <li><a href="#install-linux">Linux</a></li>
             <li><a href="#install-windows">Windows</a></li>
             <li><a href="#install-plugin">Session Manager Plugin</a></li>
+            <li><a href="#code-signing">Code Signing Certificate</a></li>
           </ul>
         </li>
         <li>
@@ -109,9 +113,10 @@
       <div class="hero">
         <h1>SSM Session Client</h1>
         <p class="hero-subtitle">
-          A self-contained binary for AWS SSM Session Manager. Access EC2 instances
+          A single, self-contained binary for AWS SSM Session Manager. Access EC2 instances
           via shell, native SSH, port forwarding, or RDP — without bastion hosts,
-          open inbound ports, or the AWS CLI plugin.
+          open inbound ports, or the AWS CLI plugin. Designed for restricted enterprise
+          environments where installing the AWS CLI or Session Manager plugin is not an option.
         </p>
         <div class="hero-ctas">
           <a href="#install" class="btn btn-primary btn-lg">Get Started</a>
@@ -217,6 +222,41 @@
         This is the primary feature that makes SSM Session Client useful in air-gapped
         or restricted networks.
       </p>
+
+      <h2 id="restricted-environments">Built for restricted enterprise environments</h2>
+      <p>
+        In many enterprise environments, application whitelisting and endpoint security
+        tools prevent users from installing or running the AWS CLI, Python, or the
+        Session Manager plugin. SSM Session Client is a single, statically compiled Go
+        binary with <strong>zero runtime dependencies</strong> — it runs anywhere a
+        standard executable is allowed.
+      </p>
+      <p>Tested and used in environments protected by:</p>
+      <ul>
+        <li><strong>Microsoft AppLocker</strong> — the binary can be deployed to an
+          approved path and whitelisted by publisher or hash rule</li>
+        <li><strong>Airlock Digital</strong> — approved as a single file, no additional
+          libraries or interpreters to trust</li>
+        <li><strong>ManageEngine / Endpoint Central</strong> — no installer, no
+          registry changes, no service dependencies</li>
+        <li><strong>CrowdStrike, Carbon Black, SentinelOne</strong> — no child
+          processes to spawn (unlike the AWS CLI which invokes Python and the plugin)</li>
+      </ul>
+      <p>
+        Because it ships as one file with everything built in — SSH client, SSM data
+        channel, WebSocket transport, SSO login — there is nothing extra to install,
+        configure, or get approved by your security team. Copy the binary, set your AWS
+        credentials, and connect.
+      </p>
+      <p>
+        This also makes SSM Session Client ideal for complex network environments where
+        AWS service endpoints are only reachable via <strong>VPN</strong> or
+        <strong>Direct Connect</strong> through AWS PrivateLink. The
+        <code>ssmmessages-endpoint</code> flag lets you override the public
+        <code>StreamUrl</code> with your private VPC endpoint, keeping all session
+        traffic within your private network.
+      </p>
+
 
     </section>
 
@@ -368,16 +408,72 @@ ssm-session-client --version</code></pre>
 
       <h2 id="install-plugin">Optional: AWS Session Manager Plugin</h2>
       <p>
-        The AWS Session Manager Plugin is <strong>not required</strong> for most features.
-        It is only needed when <strong>KMS encryption</strong> is enabled for SSM sessions,
-        because key exchange requires the plugin's encryption routines.
+        The AWS Session Manager Plugin is <strong>not required</strong>.
+        <code>ssm-session-client</code> handles all SSM functionality natively, including
+        KMS-encrypted sessions. No additional software is needed.
       </p>
       <p>
-        If the plugin is installed, <code>ssm-session-client</code> will use it automatically
+        If the plugin is installed, <code>ssm-session-client</code> can optionally use it
         (controlled by the <code>--ssm-session-plugin</code> flag). Install instructions:
         <a href="https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
            target="_blank" rel="noopener">Install the Session Manager plugin for the AWS CLI</a>.
       </p>
+
+      <h2 id="code-signing">Code Signing Certificate</h2>
+      <p>
+        Windows binaries are signed with an Authenticode code signing certificate. This
+        allows enterprise security tools to verify the publisher and integrity of the
+        binary. The certificate details below can be used to create whitelisting rules in
+        AppLocker, Airlock Digital, and other endpoint security products.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Property</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Subject</td><td><code>CN=Alex Bacchin, O=github.com/alexbacchin, C=AU</code></td></tr>
+            <tr><td>Issuer</td><td><code>CN=Alex Bacchin, O=github.com/alexbacchin, C=AU</code></td></tr>
+            <tr><td>Serial Number</td><td><code>1B:B7:DA:54:2F:FA:C2:4E:A4:F3:9C:A5:71:D2:F6:EF:4E:EE:EC:D3</code></td></tr>
+            <tr><td>Valid From</td><td>21 February 2026</td></tr>
+            <tr><td>Valid To</td><td>20 February 2029</td></tr>
+            <tr><td>Key Algorithm</td><td>RSA 4096-bit</td></tr>
+            <tr><td>Signature Algorithm</td><td>SHA-256 with RSA</td></tr>
+            <tr><td>Key Usage</td><td>Digital Signature</td></tr>
+            <tr><td>Extended Key Usage</td><td>Code Signing</td></tr>
+            <tr><td>SHA-256 Fingerprint</td><td><code>75:89:E4:12:77:43:A6:9D:01:91:75:E0:B7:19:B9:FE:A7:7B:B4:5F:08:C5:35:55:41:7F:5F:B3:F2:F0:9B:6B</code></td></tr>
+            <tr><td>SHA-1 Fingerprint</td><td><code>51:EC:2D:E1:25:26:AE:25:AF:DB:BC:10:4D:11:53:FD:4A:DC:18:27</code></td></tr>
+            <tr><td>Subject Key Identifier</td><td><code>A3:46:9A:84:7D:7E:6C:69:9D:F1:48:55:6D:6E:D9:92:92:65:92:74</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>AppLocker — Publisher Rule</h3>
+      <p>
+        Create a publisher rule in your AppLocker EXE policy that allows binaries signed by
+        this certificate. In Group Policy Editor:
+      </p>
+      <ol>
+        <li>Navigate to <em>Computer Configuration &rarr; Windows Settings &rarr; Security Settings &rarr; Application Control Policies &rarr; AppLocker &rarr; Executable Rules</em></li>
+        <li>Right-click &rarr; <em>Create New Rule</em> &rarr; select <strong>Publisher</strong></li>
+        <li>Browse to the signed <code>ssm-session-client.exe</code> binary</li>
+        <li>Set the slider to <strong>Publisher</strong> level to allow any binary signed by <code>O=github.com/alexbacchin, CN=Alex Bacchin</code></li>
+      </ol>
+      <p>Alternatively, use a <strong>File Hash</strong> rule with the SHA-256 hash of the specific release binary.</p>
+
+      <h3>Airlock Digital</h3>
+      <p>
+        Add the binary by certificate fingerprint or file hash. Use the SHA-256 fingerprint
+        above to create a trusted publisher rule, or add the specific binary hash from the
+        release checksums file.
+      </p>
+
+      <h3>Verifying the Signature</h3>
+      <p>On Windows, right-click the <code>.exe</code> &rarr; <em>Properties</em> &rarr; <em>Digital Signatures</em> tab to inspect the certificate. From PowerShell:</p>
+<pre><code class="language-powershell"># View the Authenticode signature
+Get-AuthenticodeSignature .\ssm-session-client.exe
+
+# Detailed certificate info
+(Get-AuthenticodeSignature .\ssm-session-client.exe).SignerCertificate | Format-List</code></pre>
 
     </section>
 
@@ -619,10 +715,10 @@ ssm-session-client port-forwarding  devbox:443 8443</code></pre>
         <code>GenerateDataKey</code> API, with the session ID and target ID as encryption context.
       </p>
       <p>
-        This feature requires the
-        <a href="https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
-           target="_blank" rel="noopener">AWS Session Manager plugin</a> to be installed and
-        <code>ssm-session-plugin: true</code> to be set.
+        SSM Session Client has <strong>built-in support</strong> for KMS-encrypted sessions
+        and does not require the AWS Session Manager plugin. The encryption is handled natively
+        using Go's crypto libraries. If the Session Manager plugin is installed and enabled
+        (<code>ssm-session-plugin: true</code>), it will be used instead, but it is not required.
       </p>
       <div class="callout callout-info">
         <strong>KMS endpoint:</strong> If you are using VPC endpoints, you may also need to
@@ -651,11 +747,10 @@ ssm-session-client shell i-0bdb4f892de4bb54c --config=~/.ssm-session-client.yaml
         sequences for proper colour and formatting in remote shells.
       </p>
       <div class="callout callout-info">
-        <strong>KMS encryption:</strong> If KMS session encryption is enabled for your SSM
-        sessions, you must install the
-        <a href="https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
-           target="_blank" rel="noopener">Session Manager plugin</a> and set
-        <code>ssm-session-plugin: true</code>.
+        <strong>KMS encryption:</strong> KMS-encrypted sessions are supported natively.
+        No Session Manager plugin is required — encryption is handled using built-in
+        AES-256-GCM routines. See <a href="#config-encryption">Data Channel Encryption</a>
+        for details.
       </div>
       <p>IAM reference: <a href="https://docs.aws.amazon.com/systems-manager/latest/userguide/getting-started-restrict-access-quickstart.html" target="_blank" rel="noopener">Sample IAM policies for Session Manager</a></p>
 
