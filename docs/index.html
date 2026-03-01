@@ -63,6 +63,7 @@
             <li><a href="#config-targets">Target Lookup</a></li>
             <li><a href="#config-aliases">Aliases</a></li>
             <li><a href="#config-reconnect">Reconnection</a></li>
+            <li><a href="#config-encryption">Encryption</a></li>
           </ul>
         </li>
         <li>
@@ -610,6 +611,25 @@ ssm-session-client port-forwarding  devbox:443 8443</code></pre>
         <li><code>--max-reconnects</code> — maximum attempts before giving up (default: <code>5</code>, set <code>0</code> for unlimited)</li>
       </ul>
 
+      <!-- Data Channel Encryption -->
+      <h2 id="config-encryption">Data Channel Encryption</h2>
+      <p>
+        When KMS encryption is enabled for SSM sessions, the data channel is encrypted using
+        AES-256-GCM. Encryption keys are derived from AWS KMS using the
+        <code>GenerateDataKey</code> API, with the session ID and target ID as encryption context.
+      </p>
+      <p>
+        This feature requires the
+        <a href="https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
+           target="_blank" rel="noopener">AWS Session Manager plugin</a> to be installed and
+        <code>ssm-session-plugin: true</code> to be set.
+      </p>
+      <div class="callout callout-info">
+        <strong>KMS endpoint:</strong> If you are using VPC endpoints, you may also need to
+        configure a KMS VPC endpoint (<code>com.amazonaws.&lt;region&gt;.kms</code>) for the
+        key exchange to succeed within your private network.
+      </div>
+
     </section>
 
     <!-- ============================================================
@@ -759,6 +779,29 @@ Host i-*
         <strong>Symlink mode:</strong> Alternatively, create a symlink named <code>ssh</code>
         pointing to <code>ssm-session-client</code>. When invoked as <code>ssh</code>, it
         always operates in OpenSSH-compat mode.
+      </div>
+
+      <h3>Supported SSH Flags</h3>
+      <p>
+        When operating in OpenSSH-compat mode (VSCode or symlink), the following SSH flags are
+        recognised:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>-T</code></td><td>Disable PTY allocation (used by VSCode)</td></tr>
+            <tr><td><code>-t</code></td><td>Force PTY allocation</td></tr>
+            <tr><td><code>-N</code></td><td>No remote command</td></tr>
+            <tr><td><code>-o key=value</code></td><td>SSH options (<code>StrictHostKeyChecking</code>, <code>UserKnownHostsFile</code>, <code>ConnectTimeout</code>, etc.)</td></tr>
+            <tr><td><code>-F &lt;config&gt;</code></td><td>SSH config file path</td></tr>
+            <tr><td><code>-p &lt;port&gt;</code></td><td>Remote port</td></tr>
+            <tr><td><code>-l &lt;user&gt;</code></td><td>Login username</td></tr>
+            <tr><td><code>-i &lt;keyfile&gt;</code></td><td>Identity file (private key)</td></tr>
+            <tr><td><code>-D &lt;port&gt;</code></td><td>Dynamic port forwarding (accepted but ignored)</td></tr>
+            <tr><td><code>-v / -vv / -vvv</code></td><td>Verbosity (maps to log levels)</td></tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- Instance Connect -->
