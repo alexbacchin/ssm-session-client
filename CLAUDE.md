@@ -69,3 +69,35 @@ VPC endpoint overrides are supported for STS, SSM, SSM Messages, EC2, and KMS to
 - Max cognitive/cyclomatic complexity: 15
 - Max line length: 132 characters
 - Key enabled linters: `errcheck`, `gosec`, `funlen`, `gocognit`, `gocyclo`, `revive`, `bodyclose`
+
+## Documentation Website
+
+A static documentation site lives in `docs/` and is published to GitHub Pages.
+
+### Structure
+
+```
+docs/
+  index.html       # Single-page documentation site
+  css/style.css    # Stylesheet (AWS-inspired colour scheme, responsive)
+  js/main.js       # Tabs, copy buttons, mobile menu, scroll spy
+```
+
+### Sections
+
+Overview · Install (macOS/Linux/Windows tabs) · Configuration · Session Modes · Troubleshooting · Contributing
+
+### Local Preview
+
+```bash
+cd docs && python3 -m http.server 8080
+# then open http://localhost:8080
+```
+
+### Deployment
+
+`.github/workflows/pages.yml` deploys automatically when a release is published (`release: types: [published]`). It also redeploys on pushes to `main` that touch `docs/**`.
+
+**Version injection:** The workflow replaces the `%%VERSION%%` placeholder in `index.html` with the release tag (e.g. `v1.2.3`) via `sed` before uploading the Pages artifact. For local preview or doc-only pushes where no tag is available, `js/main.js` fetches the latest release tag from the GitHub API at runtime.
+
+**GitHub Pages setup (one-time):** Repo Settings → Pages → Source: **GitHub Actions**.
