@@ -3,7 +3,6 @@ package ssmclient
 import (
 	"context"
 	"io"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -110,7 +109,7 @@ func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataCh
 		lsnr.Close()
 	}()
 
-	log.Printf("listening on %s", lsnr.Addr())
+	zap.S().Infof("listening on %s", lsnr.Addr())
 
 	return startMuxPortForwarding(ctx, c, lsnr, c.AgentVersion())
 }
@@ -140,7 +139,7 @@ func startBasicPortForwardingSession(ctx context.Context, c *datachannel.SsmData
 		lsnr.Close()
 	}()
 
-	log.Printf("listening on %s", lsnr.Addr())
+	zap.S().Infof("listening on %s", lsnr.Addr())
 
 	doneCh := make(chan bool)
 	errCh := make(chan error)
@@ -155,7 +154,7 @@ outer:
 			case <-ctx.Done():
 				break outer // Expected error due to shutdown
 			default:
-				log.Print(err)
+				zap.S().Info(err)
 				continue
 			}
 		}
