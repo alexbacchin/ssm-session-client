@@ -90,7 +90,7 @@ func RunSSHCompat(osArgs []string) error {
 	}
 
 	// Handle instance-connect if configured via env or app config
-	if config.Flags().UseInstanceConnect {
+	if config.Flags().SSHDirect.UseInstanceConnect {
 		if err := prepareInstanceConnect(context.Background(), tgt, user, opts); err != nil {
 			return err
 		}

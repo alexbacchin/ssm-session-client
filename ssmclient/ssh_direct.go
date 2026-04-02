@@ -294,8 +294,8 @@ func tofuHostKeyCallback(knownHostsCb ssh.HostKeyCallback, knownHostsFile string
 		fmt.Fprintf(os.Stderr, "%s key fingerprint is %s.\n", key.Type(), fp)
 		fmt.Fprint(os.Stderr, "Are you sure you want to continue connecting (yes/no)? ")
 
-		var answer string
-		if _, err := fmt.Fscanln(os.Stdin, &answer); err != nil || (answer != "yes" && answer != "y") {
+		answer, err := readConsoleLine()
+		if err != nil || (answer != "yes" && answer != "y") {
 			return fmt.Errorf("host key verification failed: user declined")
 		}
 
@@ -431,6 +431,7 @@ func runSSHCommand(client *ssh.Client, command string) error {
 	}
 	defer session.Close()
 
+	session.Stdin = os.Stdin
 	session.Stdout = os.Stdout
 	session.Stderr = os.Stderr
 
