@@ -539,6 +539,12 @@ Get-AuthenticodeSignature .\ssm-session-client.exe
             <tr><td>Max reconnection attempts</td><td><code>max-reconnects</code></td><td><code>SSC_MAX_RECONNECTS</code></td><td>—</td></tr>
             <tr><td>Target aliases (config file only)</td><td><code>aliases</code></td><td>—</td><td>—</td></tr>
             <tr><td>Target alias (CLI flag, repeatable)</td><td><code>--alias name=tag:val</code></td><td>—</td><td>—</td></tr>
+            <tr><td colspan="4" style="background:#f5f5f5;font-weight:600;padding:6px 12px;">ssh-direct options (nested under <code>ssh-direct:</code> in config file)</td></tr>
+            <tr><td>SSH private key file path</td><td><code>ssh-direct.ssh-key-file</code></td><td><code>SSC_SSH_DIRECT_SSH_KEY_FILE</code></td><td>—</td></tr>
+            <tr><td>Skip host key verification</td><td><code>ssh-direct.no-host-key-check</code></td><td><code>SSC_SSH_DIRECT_NO_HOST_KEY_CHECK</code></td><td>—</td></tr>
+            <tr><td>Run a command instead of an interactive shell</td><td><code>ssh-direct.ssh-exec-command</code></td><td><code>SSC_SSH_DIRECT_SSH_EXEC_COMMAND</code></td><td>—</td></tr>
+            <tr><td>Push ephemeral key via EC2 Instance Connect</td><td><code>ssh-direct.instance-connect</code></td><td><code>SSC_SSH_DIRECT_INSTANCE_CONNECT</code></td><td>—</td></tr>
+            <tr><td>Disable Instance Connect even if set in config</td><td><code>ssh-direct.no-instance-connect</code></td><td><code>SSC_SSH_DIRECT_NO_INSTANCE_CONNECT</code></td><td>—</td></tr>
           </tbody>
         </table>
       </div>
@@ -810,6 +816,13 @@ ssm-session-client ssh-direct ec2-user@i-0123456789abcdef0:2222</code></pre>
         connection the host key is saved to <code>~/.ssh/known_hosts</code>. Use
         <code>--no-host-key-check</code> to skip verification (not recommended for production).
       </div>
+
+      <h3>Config file example</h3>
+      <p>ssh-direct options live under the <code>ssh-direct:</code> section in the config file:</p>
+<pre><code class="language-yaml">ssh-direct:
+  ssh-key-file: ~/.ssh/id_ed25519   # private key (omit to auto-discover)
+  no-host-key-check: false          # set true only in trusted environments
+  instance-connect: true            # push ephemeral key via EC2 Instance Connect</code></pre>
 
       <!-- VSCode -->
       <h2 id="mode-vscode">VSCode Remote SSH Integration</h2>

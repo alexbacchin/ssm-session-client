@@ -57,8 +57,8 @@ func FindSSHPrivateKey(overridePath string) (string, error) {
 	if overridePath != "" {
 		paths = append(paths, overridePath)
 	}
-	if singleFlags.SSHKeyFile != "" {
-		paths = append(paths, singleFlags.SSHKeyFile)
+	if singleFlags.SSHDirect.SSHKeyFile != "" {
+		paths = append(paths, singleFlags.SSHDirect.SSHKeyFile)
 	}
 	paths = append(paths,
 		filepath.Join(homeDir, ".ssh", "id_ed25519"),

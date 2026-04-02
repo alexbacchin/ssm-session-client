@@ -23,6 +23,9 @@ var (
 	// ErrMultipleInstancesFound is the error returned when an alias resolves to more than one running instance.
 	ErrMultipleInstancesFound = errors.New("multiple instances found for alias; target must resolve to a single instance")
 
+	instanceIDRegex    = regexp.MustCompile(`^m?i-[[:xdigit:]]{8,}$`)
+	instanceIDTXTRegex = regexp.MustCompile(`^i-[[:xdigit:]]{8,}$`)
+
 	// RFC 1918 and 6598 address blocks.
 	privateNets = []net.IPNet{
 		{IP: net.ParseIP("10.0.0.0"), Mask: net.IPv4Mask(0xff, 0, 0, 0)},       // 10.0/8
@@ -56,19 +59,13 @@ func ResolveTarget(target string, cfg aws.Config) (string, error) {
 // moving on to the resolution logic of the provided TargetResolvers.  If a resolver returns an error, the next
 // resolver in the chain is checked, unless the error is ErrMultipleInstancesFound which stops the chain
 // immediately.  If all resolvers fail to find an instance ID an error is returned.
-func ResolveTargetChain(target string, resolvers ...TargetResolver) (inst string, err error) {
-	var matched bool
-	matched, err = regexp.MatchString(`^m?i-[[:xdigit:]]{8,}$`, target)
-	if err != nil {
-		return "", err
-	}
-
-	if matched {
+func ResolveTargetChain(target string, resolvers ...TargetResolver) (string, error) {
+	if instanceIDRegex.MatchString(target) {
 		return target, nil
 	}
 
 	for _, res := range resolvers {
-		inst, err = res.Resolve(target)
+		inst, err := res.Resolve(target)
 		if err == nil {
 			return inst, nil
 		}
@@ -114,9 +111,8 @@ func (r *DNSResolver) Resolve(target string) (string, error) {
 		return "", err
 	}
 
-	re := regexp.MustCompile(`^i-[[:xdigit:]]{8,}$`)
 	for _, rec := range rr {
-		if re.MatchString(rec) {
+		if instanceIDTXTRegex.MatchString(rec) {
 			return rec, nil
 		}
 	}

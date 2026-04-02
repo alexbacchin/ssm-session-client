@@ -197,7 +197,7 @@ func writeCacheFile(cacheFileData *cacheFileData, cacheFilePath string) error {
 	}
 	dir, _ := filepath.Split(cacheFilePath)
 	zap.S().Debug("Cache file dir: ", dir)
-	err = os.MkdirAll(dir, 0600)
+	err = os.MkdirAll(dir, 0700)
 	if err != nil {
 		return CacheFileCreationError{err, "failed to create directory", cacheFilePath}
 	}

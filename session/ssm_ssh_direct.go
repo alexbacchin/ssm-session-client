@@ -36,12 +36,12 @@ func StartSSHDirectSession(target string) error {
 		Target:         tgt,
 		User:           user,
 		RemotePort:     port,
-		KeyFile:        config.Flags().SSHKeyFile,
-		NoHostKeyCheck: config.Flags().NoHostKeyCheck,
-		ExecCommand:    config.Flags().SSHExecCommand,
+		KeyFile:        config.Flags().SSHDirect.SSHKeyFile,
+		NoHostKeyCheck: config.Flags().SSHDirect.NoHostKeyCheck,
+		ExecCommand:    config.Flags().SSHDirect.SSHExecCommand,
 	}
 
-	if config.Flags().UseInstanceConnect && !config.Flags().NoInstanceConnect {
+	if config.Flags().SSHDirect.UseInstanceConnect && !config.Flags().SSHDirect.NoInstanceConnect {
 		if err := prepareInstanceConnect(context.Background(), tgt, user, opts); err != nil {
 			return err
 		}

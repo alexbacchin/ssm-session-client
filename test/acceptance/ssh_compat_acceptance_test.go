@@ -207,6 +207,105 @@ func TestSSHCompatWithLoginUser(t *testing.T) {
 	}
 }
 
+// TestSSHCompatVSCodeStylePipedStdin simulates the exact VSCode Remote SSH install
+// pattern: a shell script is piped to stdin while the binary runs with -T -D flags.
+// This covers the fix where runSSHCommand was not forwarding os.Stdin to the remote
+// command, causing the piped script to never reach the remote sh and the process to
+// exit immediately with a broken-pipe error on Windows.
+func TestSSHCompatVSCodeStylePipedStdin(t *testing.T) {
+	i := infra(t)
+	waitForSSMReady(t, i.InstanceID)
+	registerSessionLeakCheck(t, i.InstanceID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), sshCompatTimeout)
+	defer cancel()
+
+	dynamicPort := freePort(t)
+	target := fmt.Sprintf("%s@%s", sshCompatUser, i.InstanceID)
+
+	// Simulate `type install-script.sh | ssm-session-client -T -D <port> host sh`
+	// The script writes a marker to stdout so we can verify stdin was forwarded.
+	script := "echo " + sshCompatMarker + "\n"
+
+	cmd := exec.CommandContext(ctx, binaryPath, //nolint:gosec
+		"-T",
+		"-D", fmt.Sprintf("%d", dynamicPort),
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=30",
+		target,
+		"sh",
+	)
+	cmd.Env = append(os.Environ(),
+		"SSC_AWS_REGION="+globalInfraOutputs.AWSRegion,
+		"SSC_INSTANCE_CONNECT=true",
+	)
+	cmd.Stdin = strings.NewReader(script)
+
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("vscode piped-stdin exited with error\nstderr: %s", errBuf.String())
+	}
+	if !strings.Contains(outBuf.String(), sshCompatMarker) {
+		t.Errorf("expected %q in stdout (stdin not forwarded to remote sh)\nstdout: %s\nstderr: %s",
+			sshCompatMarker, outBuf.String(), errBuf.String())
+	}
+}
+
+// TestSSHCompatTOFUNewHost verifies that an unknown host triggers the TOFU prompt
+// and that accepting it adds the key to known_hosts. This covers the fix where
+// tofuHostKeyCallback read from os.Stdin (which may be a pipe) instead of the
+// console/TTY directly, causing immediate "user declined" before any prompt appeared.
+func TestSSHCompatTOFUNewHost(t *testing.T) {
+	i := infra(t)
+	waitForSSMReady(t, i.InstanceID)
+	registerSessionLeakCheck(t, i.InstanceID)
+
+	// Use a fresh empty known_hosts so the host is always unknown.
+	dir := t.TempDir()
+	knownHostsFile := filepath.Join(dir, "known_hosts")
+
+	ctx, cancel := context.WithTimeout(context.Background(), sshCompatTimeout)
+	defer cancel()
+
+	target := fmt.Sprintf("%s@%s", sshCompatUser, i.InstanceID)
+	cmd := exec.CommandContext(ctx, binaryPath, //nolint:gosec
+		"-T",
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", "UserKnownHostsFile="+knownHostsFile,
+		target,
+		"echo", sshCompatMarker,
+	)
+	cmd.Env = append(os.Environ(),
+		"SSC_AWS_REGION="+globalInfraOutputs.AWSRegion,
+		"SSC_INSTANCE_CONNECT=true",
+	)
+	// Pipe "yes\n" to stdin to simulate the user responding to the TOFU prompt.
+	// The fix ensures readConsoleLine() falls back to stdin when no TTY is available,
+	// so this simulates both the non-interactive test path and the VSCode dialog path.
+	cmd.Stdin = strings.NewReader("yes\n")
+
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("TOFU new-host exited with error\nstderr: %s", errBuf.String())
+	}
+	if !strings.Contains(outBuf.String(), sshCompatMarker) {
+		t.Errorf("expected %q in stdout\nstdout: %s\nstderr: %s",
+			sshCompatMarker, outBuf.String(), errBuf.String())
+	}
+	// Verify the key was persisted to known_hosts.
+	data, err := os.ReadFile(knownHostsFile)
+	if err != nil || len(data) == 0 {
+		t.Errorf("expected known_hosts to be written after TOFU acceptance, got: %v", err)
+	}
+}
+
 // TestSSHCompatCompoundFlags tests compound boolean flags like -TN which VSCode
 // may use in certain connection modes.
 func TestSSHCompatCompoundFlags(t *testing.T) {

@@ -6,32 +6,37 @@ type TargetAlias struct {
 	TagValue string `mapstructure:"tag-value"`
 }
 
+// SSHDirectConfig holds flags that are only used by the ssh-direct command.
+type SSHDirectConfig struct {
+	SSHKeyFile         string `mapstructure:"ssh-key-file"`
+	NoHostKeyCheck     bool   `mapstructure:"no-host-key-check"`
+	SSHExecCommand     string `mapstructure:"ssh-exec-command"`
+	UseInstanceConnect bool   `mapstructure:"instance-connect"`
+	NoInstanceConnect  bool   `mapstructure:"no-instance-connect"`
+}
+
 type Config struct {
-	AWSProfile             string `mapstructure:"aws-profile"`
-	AWSRegion              string `mapstructure:"aws-region"`
-	EC2VpcEndpoint         string `mapstructure:"ec2-endpoint"`
-	KMSVpcEndpoint         string `mapstructure:"kms-endpoint"`
-	ProxyURL               string `mapstructure:"proxy-url"`
-	SSHPublicKeyFile       string `mapstructure:"ssh-public-key-file"`
-	SSMMessagesVpcEndpoint string `mapstructure:"ssmmessages-endpoint"`
-	SSMVpcEndpoint         string `mapstructure:"ssm-endpoint"`
-	STSVpcEndpoint         string `mapstructure:"sts-endpoint"`
-	UseSSMSessionPlugin    bool   `mapstructure:"ssm-session-plugin"`
-	LogLevel               string `mapstructure:"log-level"`
-	UseSSOLogin            bool   `mapstructure:"sso-login"`
-	SSOOpenBrowser         bool   `mapstructure:"sso-open-browser"`
-	EnableReconnect        bool   `mapstructure:"enable-reconnect"`
-	MaxReconnects          int    `mapstructure:"max-reconnects"`
-	SSHKeyFile             string `mapstructure:"ssh-key-file"`
-	NoHostKeyCheck         bool   `mapstructure:"no-host-key-check"`
-	SSHExecCommand         string `mapstructure:"ssh-exec-command"`
-	UseInstanceConnect     bool   `mapstructure:"instance-connect"`
-	NoInstanceConnect      bool   `mapstructure:"no-instance-connect"`
-	RDPPort                int    `mapstructure:"rdp-port"`
-	RDPLocalPort           int    `mapstructure:"rdp-local-port"`
-	RDPGetPassword         bool   `mapstructure:"rdp-get-password"`
-	RDPKeyPairFile         string `mapstructure:"rdp-key-pair-file"`
-	RDPUsername            string `mapstructure:"rdp-username"`
+	AWSProfile             string          `mapstructure:"aws-profile"`
+	AWSRegion              string          `mapstructure:"aws-region"`
+	EC2VpcEndpoint         string          `mapstructure:"ec2-endpoint"`
+	KMSVpcEndpoint         string          `mapstructure:"kms-endpoint"`
+	ProxyURL               string          `mapstructure:"proxy-url"`
+	SSHPublicKeyFile       string          `mapstructure:"ssh-public-key-file"`
+	SSMMessagesVpcEndpoint string          `mapstructure:"ssmmessages-endpoint"`
+	SSMVpcEndpoint         string          `mapstructure:"ssm-endpoint"`
+	STSVpcEndpoint         string          `mapstructure:"sts-endpoint"`
+	UseSSMSessionPlugin    bool            `mapstructure:"ssm-session-plugin"`
+	LogLevel               string          `mapstructure:"log-level"`
+	UseSSOLogin            bool            `mapstructure:"sso-login"`
+	SSOOpenBrowser         bool            `mapstructure:"sso-open-browser"`
+	EnableReconnect        bool            `mapstructure:"enable-reconnect"`
+	MaxReconnects          int             `mapstructure:"max-reconnects"`
+	SSHDirect              SSHDirectConfig `mapstructure:"ssh-direct"`
+	RDPPort                int             `mapstructure:"rdp-port"`
+	RDPLocalPort           int             `mapstructure:"rdp-local-port"`
+	RDPGetPassword         bool            `mapstructure:"rdp-get-password"`
+	RDPKeyPairFile         string          `mapstructure:"rdp-key-pair-file"`
+	RDPUsername            string          `mapstructure:"rdp-username"`
 	Aliases                map[string]TargetAlias `mapstructure:"aliases"`
 }
 
