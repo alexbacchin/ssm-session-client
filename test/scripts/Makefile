@@ -25,7 +25,11 @@ TF_BACKEND_FLAGS = \
 SSO_PROFILE        ?=
 SSO_TEST_TIMEOUT   ?= 10
 
-.PHONY: acceptance-prepare acceptance-wait-ssm acceptance-run-local acceptance-run-ci acceptance-destroy acceptance acceptance-sso-interactive help
+.PHONY: acceptance-prepare acceptance-wait-ssm acceptance-run-local acceptance-run-ci acceptance-destroy acceptance acceptance-sso-interactive acceptance-backend-init help
+
+acceptance-backend-init: ## Reconfigure and reconnect to the Terraform backend (state bucket).
+	cd $(INFRA_DIR) && \
+		$(TF_CMD) init -reconfigure $(TF_BACKEND_FLAGS)
 
 help: ## Show this help message.
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
