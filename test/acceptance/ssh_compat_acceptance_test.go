@@ -31,7 +31,7 @@ func runSSHCompat(t *testing.T, timeout time.Duration, args ...string) (stdout, 
 	cmd := exec.CommandContext(ctx, binaryPath, args...) //nolint:gosec
 	cmd.Env = append(os.Environ(),
 		"SSC_AWS_REGION="+globalInfraOutputs.AWSRegion,
-		"SSC_INSTANCE_CONNECT=true",
+		"SSC_SSH_DIRECT_INSTANCE_CONNECT=true",
 	)
 
 	var outBuf, errBuf strings.Builder
@@ -238,7 +238,7 @@ func TestSSHCompatVSCodeStylePipedStdin(t *testing.T) {
 	)
 	cmd.Env = append(os.Environ(),
 		"SSC_AWS_REGION="+globalInfraOutputs.AWSRegion,
-		"SSC_INSTANCE_CONNECT=true",
+		"SSC_SSH_DIRECT_INSTANCE_CONNECT=true",
 	)
 	cmd.Stdin = strings.NewReader(script)
 
@@ -281,7 +281,7 @@ func TestSSHCompatTOFUNewHost(t *testing.T) {
 	)
 	cmd.Env = append(os.Environ(),
 		"SSC_AWS_REGION="+globalInfraOutputs.AWSRegion,
-		"SSC_INSTANCE_CONNECT=true",
+		"SSC_SSH_DIRECT_INSTANCE_CONNECT=true",
 	)
 	// Pipe "yes\n" to stdin to simulate the user responding to the TOFU prompt.
 	// The fix ensures readConsoleLine() falls back to stdin when no TTY is available,

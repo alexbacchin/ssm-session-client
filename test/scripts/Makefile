@@ -24,6 +24,7 @@ TF_BACKEND_FLAGS = \
 
 SSO_PROFILE        ?=
 SSO_TEST_TIMEOUT   ?= 10
+ACCEPTANCE_ARGS    ?=
 
 .PHONY: acceptance-prepare acceptance-wait-ssm acceptance-run-local acceptance-run-ci acceptance-destroy acceptance acceptance-sso-interactive acceptance-backend-init help
 
@@ -75,7 +76,8 @@ acceptance-run-local: ## Run acceptance tests locally (requires infra to be prov
 			-v \
 			-timeout 20m \
 			-count=1 \
-			-race
+			-race \
+			$(ACCEPTANCE_ARGS)
 
 acceptance-run-ci: ## Run acceptance tests in CI (identical to local; relies on OIDC credentials).
 	$(MAKE) acceptance-run-local

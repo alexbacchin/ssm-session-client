@@ -9,20 +9,11 @@ import (
 	"strings"
 )
 
-// readConsoleLine reads a line of input directly from the controlling terminal
-// (/dev/tty), bypassing stdin. This allows interactive prompts (e.g. TOFU host
-// key confirmation) to work correctly even when stdin is a pipe or redirected
-// file, as is the case when VSCode Remote SSH pipes an install script to the
-// process via `type file | ssm-session-client -T -D ... host sh`.
-// Falls back to os.Stdin if /dev/tty cannot be opened.
+// readConsoleLine reads a single line from stdin for interactive prompts
+// (e.g. TOFU host key confirmation). It reads from os.Stdin because the prompt
+// occurs during SSH handshake, before stdin is wired to the remote session.
 func readConsoleLine() (string, error) {
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	r := io.Reader(os.Stdin)
-	if err == nil {
-		r = tty
-		defer tty.Close()
-	}
-	scanner := bufio.NewScanner(r)
+	scanner := bufio.NewScanner(os.Stdin)
 	if scanner.Scan() {
 		return strings.TrimSpace(scanner.Text()), nil
 	}

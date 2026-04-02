@@ -123,7 +123,7 @@ func LoadConfig(cfgFile string) {
 	viper.AddConfigPath(homeDir)
 	viper.AddConfigPath(filepath.Dir(ex))
 	viper.SetEnvPrefix("SSC")
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	viper.AutomaticEnv()
 
 	if cfgFile != "" {
