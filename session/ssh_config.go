@@ -2,6 +2,7 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,16 +86,15 @@ func resolveConfigFiles(configFile string) []string {
 
 // parseSSHConfigFile parses an SSH config file into a list of Host blocks.
 func parseSSHConfigFile(path string) ([]sshConfigBlock, error) {
-	f, err := os.Open(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
 	var blocks []sshConfigBlock
 	var current *sshConfigBlock
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(normalizeFileEncoding(raw)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
@@ -263,6 +263,43 @@ func matchGlob(s, pattern string) bool {
 		}
 	}
 	return len(s) == 0
+}
+
+// normalizeFileEncoding detects and converts common Windows file encodings to UTF-8.
+// It handles:
+//   - UTF-16 LE (BOM 0xFF 0xFE): PowerShell Out-File / ">" redirect default on Windows 5.x
+//   - UTF-16 BE (BOM 0xFE 0xFF): uncommon but valid
+//   - UTF-8 BOM (0xEF 0xBB 0xBF): PowerShell Set-Content -Encoding UTF8 on Windows 5.x,
+//     and Windows editors such as Notepad
+//
+// SSH config files contain only ASCII characters, so UTF-16 decoding simply
+// extracts the non-null bytes from each two-byte code unit.
+func normalizeFileEncoding(data []byte) []byte {
+	// UTF-16 LE BOM: FF FE
+	if len(data) >= 2 && data[0] == 0xFF && data[1] == 0xFE {
+		out := make([]byte, 0, len(data)/2)
+		for i := 2; i+1 < len(data); i += 2 {
+			if data[i+1] == 0x00 {
+				out = append(out, data[i])
+			}
+		}
+		return out
+	}
+	// UTF-16 BE BOM: FE FF
+	if len(data) >= 2 && data[0] == 0xFE && data[1] == 0xFF {
+		out := make([]byte, 0, len(data)/2)
+		for i := 2; i+1 < len(data); i += 2 {
+			if data[i] == 0x00 {
+				out = append(out, data[i+1])
+			}
+		}
+		return out
+	}
+	// UTF-8 BOM: EF BB BF
+	if len(data) >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
+		return data[3:]
+	}
+	return data
 }
 
 // expandTilde expands a leading ~ to the user's home directory.
