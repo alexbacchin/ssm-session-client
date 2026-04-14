@@ -150,6 +150,94 @@ func TestParseSSHConfig_EqualsFormat(t *testing.T) {
 	}
 }
 
+func TestParseSSHConfig_WindowsCRLF(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config")
+	// Simulate a file saved on Windows with CRLF line endings.
+	content := "Host my-ec2\r\n  HostName i-0123456789abcdef0\r\n  User ec2-user\r\n"
+	if err := os.WriteFile(configFile, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := ParseSSHConfig(configFile, "my-ec2")
+
+	if cfg.HostName != "i-0123456789abcdef0" {
+		t.Errorf("expected HostName=i-0123456789abcdef0, got %q", cfg.HostName)
+	}
+	if cfg.User != "ec2-user" {
+		t.Errorf("expected User=ec2-user, got %q", cfg.User)
+	}
+}
+
+func TestParseSSHConfig_WindowsBOM(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config")
+	// Simulate a file with a UTF-8 BOM — added by Notepad and some Windows editors.
+	const bom = "\xef\xbb\xbf"
+	content := bom + "Host my-ec2\n  HostName i-0123456789abcdef0\n  User ec2-user\n"
+	if err := os.WriteFile(configFile, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := ParseSSHConfig(configFile, "my-ec2")
+
+	if cfg.HostName != "i-0123456789abcdef0" {
+		t.Errorf("expected HostName=i-0123456789abcdef0, got %q (BOM not stripped?)", cfg.HostName)
+	}
+	if cfg.User != "ec2-user" {
+		t.Errorf("expected User=ec2-user, got %q", cfg.User)
+	}
+}
+
+func TestParseSSHConfig_WindowsBOMAndCRLF(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config")
+	// Simulate a file with both UTF-8 BOM and CRLF line endings.
+	const bom = "\xef\xbb\xbf"
+	content := bom + "Host my-ec2\r\n  HostName i-0123456789abcdef0\r\n  User ec2-user\r\n"
+	if err := os.WriteFile(configFile, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := ParseSSHConfig(configFile, "my-ec2")
+
+	if cfg.HostName != "i-0123456789abcdef0" {
+		t.Errorf("expected HostName=i-0123456789abcdef0, got %q (BOM+CRLF not handled?)", cfg.HostName)
+	}
+	if cfg.User != "ec2-user" {
+		t.Errorf("expected User=ec2-user, got %q", cfg.User)
+	}
+}
+
+// utf16LE encodes an ASCII string as UTF-16 LE bytes with BOM, mimicking
+// PowerShell 5.x Out-File / ">" redirect default output.
+func utf16LE(s string) []byte {
+	out := []byte{0xFF, 0xFE} // BOM
+	for i := 0; i < len(s); i++ {
+		out = append(out, s[i], 0x00)
+	}
+	return out
+}
+
+func TestParseSSHConfig_PowerShellUTF16LE(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config")
+	// PowerShell 5.x Out-File and ">" write UTF-16 LE with BOM by default.
+	content := "Host my-ec2\r\n  HostName i-0123456789abcdef0\r\n  User ec2-user\r\n"
+	if err := os.WriteFile(configFile, utf16LE(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := ParseSSHConfig(configFile, "my-ec2")
+
+	if cfg.HostName != "i-0123456789abcdef0" {
+		t.Errorf("expected HostName=i-0123456789abcdef0, got %q (UTF-16 LE not handled?)", cfg.HostName)
+	}
+	if cfg.User != "ec2-user" {
+		t.Errorf("expected User=ec2-user, got %q", cfg.User)
+	}
+}
+
 func TestMatchGlob(t *testing.T) {
 	tests := []struct {
 		s, pattern string

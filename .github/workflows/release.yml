@@ -15,6 +15,7 @@ env:
   TF_VERSION: "1.9"
   AWS_REGION: us-west-2
   MAKEFILE: test/scripts/Makefile
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -45,6 +46,9 @@ jobs:
     name: Acceptance tests
     needs: unit-tests
     runs-on: ubuntu-latest
+    concurrency:
+      group: acceptance-tests-infra
+      cancel-in-progress: false
 
     env:
       # Sanitise the tag for use in resource names (e.g. v1.2.3-rc1 → v1-2-3-rc1).
@@ -236,7 +240,7 @@ jobs:
         run: |
           go build \
             -ldflags "-X 'github.com/alexbacchin/ssm-session-client/cmd.version=${{ github.ref_name }}'" \
-            -o ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe \
+            -o ssm-session-client.exe \
             .
 
       - name: Sign Windows binary
@@ -252,29 +256,39 @@ jobs:
               -n "ssm-session-client" \
               -i "https://github.com/${{ github.repository }}" \
               -t "http://timestamp.digicert.com" \
-              -in ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe \
-              -out ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}-signed.exe
-            mv ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}-signed.exe \
-               ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe
+              -in ssm-session-client.exe \
+              -out ssm-session-client-signed.exe
+            mv ssm-session-client-signed.exe ssm-session-client.exe
             rm -f cert.pfx
             echo "Binary signed successfully"
           else
             echo "Skipping signing - WINDOWS_CERT_PFX secret not set"
           fi
 
+      - name: Generate signed executable checksum
+        run: |
+          sha256sum ssm-session-client.exe > ssm-session-client-windows-${{ matrix.goarch }}.exe.sha256
+
+      - name: Zip Windows binary
+        run: |
+          zip ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip \
+            ssm-session-client.exe \
+            ssm-session-client-windows-${{ matrix.goarch }}.exe.sha256
+
       - name: Generate checksums
         run: |
-          md5sum ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe > \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.md5
-          sha256sum ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe > \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.sha256
+          md5sum ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip > \
+            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.md5
+          sha256sum ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip > \
+            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.sha256
 
       - name: Upload to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ github.ref_name }} \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.md5 \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.sha256 \
+            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip \
+            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.md5 \
+            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.sha256 \
+            ssm-session-client-windows-${{ matrix.goarch }}.exe.sha256 \
             --clobber
