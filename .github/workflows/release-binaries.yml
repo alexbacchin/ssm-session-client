@@ -90,10 +90,15 @@ jobs:
           echo "Skipping signing - WINDOWS_CERT_PFX secret not set"
         fi
 
+    - name: Generate signed executable checksum
+      run: |
+        sha256sum ssm-session-client.exe > ssm-session-client-windows-${{ matrix.goarch }}.exe.sha256
+
     - name: Zip Windows binary
       run: |
         zip ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip \
-          ssm-session-client.exe
+          ssm-session-client.exe \
+          ssm-session-client-windows-${{ matrix.goarch }}.exe.sha256
 
     - name: Generate checksums
       run: |
@@ -110,6 +115,7 @@ jobs:
           ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip \
           ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.md5 \
           ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.sha256 \
+          ssm-session-client-windows-${{ matrix.goarch }}.exe.sha256 \
           --clobber
 
   releases-matrix-arm:
