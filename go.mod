@@ -3,14 +3,14 @@ module github.com/alexbacchin/ssm-session-client
 go 1.25.0
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.41.5
-	github.com/aws/aws-sdk-go-v2/config v1.32.14
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.297.0
-	github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect v1.32.20
-	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.4
-	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10
+	github.com/aws/aws-sdk-go-v2 v1.41.6
+	github.com/aws/aws-sdk-go-v2/config v1.32.16
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.297.1
+	github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect v1.32.21
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.5
+	github.com/aws/aws-sdk-go-v2/service/sts v1.42.0
 	github.com/aws/session-manager-plugin v0.0.0-20260317185859-1fc63e3f5a01
-	github.com/aws/smithy-go v1.24.3
+	github.com/aws/smithy-go v1.25.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.10.2
@@ -22,10 +22,10 @@ require (
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.14
-	github.com/aws/aws-sdk-go-v2/service/kms v1.50.4
-	github.com/aws/aws-sdk-go-v2/service/sso v1.30.15
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.19
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.15
+	github.com/aws/aws-sdk-go-v2/service/kms v1.50.5
+	github.com/aws/aws-sdk-go-v2/service/sso v1.30.16
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.20
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/xtaci/smux v1.5.57
 	go.uber.org/zap v1.27.1
@@ -35,13 +35,13 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go v1.55.8 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.21 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.21 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.21 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.21 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.0.9 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.22 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.22 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.22 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.23 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.8 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.22 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.0.10 // indirect
 	github.com/cihub/seelog v0.0.0-20170130134532-f561c5e57575 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
