@@ -4,12 +4,6 @@ on:
   # Deploy automatically when a release is published
   release:
     types: [published]
-  # Also redeploy when documentation source changes on main
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**'
   # Allow manual triggers with an optional version override
   workflow_dispatch:
     inputs:
