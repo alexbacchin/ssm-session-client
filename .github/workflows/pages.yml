@@ -35,9 +35,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Inject release version into docs
+      - name: Build versioned documentation
         run: |
-          # Priority: release event tag > manual input > tag ref > nothing (JS fetches at runtime)
+          # Determine the version tag
           TAG="${{ github.event.release.tag_name }}"
           if [ -z "$TAG" ]; then TAG="${{ inputs.version }}"; fi
           if [ -z "$TAG" ]; then
@@ -45,11 +45,33 @@ jobs:
             if echo "$REF" | grep -qE '^v[0-9]'; then TAG="$REF"; fi
           fi
 
+          # Create a working directory for the site
+          mkdir -p site
+
+          # Copy current docs to root (latest version)
+          cp -r docs/* site/
+
+          # If we have a version tag, also create a versioned copy
           if [ -n "$TAG" ]; then
-            echo "Injecting version: $TAG"
-            sed -i "s|%%VERSION%%|$TAG|g" docs/index.html
+            echo "Building versioned documentation for $TAG"
+            mkdir -p "site/$TAG"
+            cp -r docs/* "site/$TAG/"
+
+            # Inject version into both root and versioned docs
+            sed -i "s|%%VERSION%%|$TAG|g" site/index.html
+            sed -i "s|%%VERSION%%|$TAG|g" "site/$TAG/index.html"
+
+            # Create a versions index file
+            echo "Creating versions index"
+            cat > site/versions.json <<EOF
+          {
+            "latest": "$TAG",
+            "versions": ["$TAG"]
+          }
+          EOF
           else
-            echo "No version to inject — JavaScript will fetch the latest release at runtime."
+            echo "No version tag — deploying as latest without versioning"
+            sed -i "s|%%VERSION%%|latest|g" site/index.html
           fi
 
       - name: Setup Pages
@@ -58,7 +80,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/
+          path: site/
 
       - name: Deploy to GitHub Pages
         id: deployment

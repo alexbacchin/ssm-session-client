@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SSM Session Client – Documentation Versions</title>
+  <meta name="description" content="Access documentation for different versions of SSM Session Client.">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .versions-container {
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    .versions-container h1 {
+      margin-bottom: 1.5rem;
+      color: #1f2937;
+    }
+    .version-list {
+      list-style: none;
+      padding: 0;
+    }
+    .version-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem;
+      margin-bottom: 0.5rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+      background: #f9fafb;
+      transition: background 0.2s;
+    }
+    .version-item:hover {
+      background: #f3f4f6;
+    }
+    .version-item.latest {
+      border-color: #818cf8;
+      background: #eef2ff;
+    }
+    .version-item.latest .version-label {
+      font-weight: 600;
+      color: #4338ca;
+    }
+    .version-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      background: #818cf8;
+      color: white;
+      border-radius: 1rem;
+      font-size: 0.875rem;
+      margin-left: 0.5rem;
+    }
+    .version-item.latest .version-badge {
+      background: #4338ca;
+    }
+    .version-link {
+      color: #4338ca;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .version-link:hover {
+      text-decoration: underline;
+    }
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header class="header">
+  <a href="./" class="header-brand">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect width="24" height="24" rx="4" fill="#818cf8"/>
+      <path d="M7 12h10M12 7l5 5-5 5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    SSM&nbsp;<span class="brand-accent">Session Client</span>
+  </a>
+  <nav class="header-nav">
+    <a href="https://github.com/alexbacchin/ssm-session-client/releases" class="btn btn-primary" target="_blank" rel="noopener">
+      &#8659;&nbsp;Releases
+    </a>
+    <a href="https://github.com/alexbacchin/ssm-session-client" class="btn btn-outline-light" target="_blank" rel="noopener">
+      GitHub
+    </a>
+  </nav>
+</header>
+
+<div class="versions-container">
+  <h1>Documentation Versions</h1>
+  <p>Select a version below to view its documentation:</p>
+
+  <div id="versionsList" class="loading">Loading versions...</div>
+</div>
+
+<footer style="margin-top: 3rem; padding: 2rem; text-align: center; color: #6b7280; border-top: 1px solid #e5e7eb;">
+  <p>
+    <strong>SSM Session Client</strong> ·
+    <a href="https://github.com/alexbacchin/ssm-session-client" target="_blank" rel="noopener">GitHub</a>
+  </p>
+</footer>
+
+<script>
+  (function() {
+    const versionsList = document.getElementById('versionsList');
+
+    // Fetch versions.json to get the list
+    fetch('versions.json')
+      .then(r => r.json())
+      .then(data => {
+        const versions = data.versions || [];
+        const latest = data.latest || versions[0];
+
+        if (versions.length === 0) {
+          versionsList.innerHTML = '<p style="color: #ef4444;">No versions available.</p>';
+          return;
+        }
+
+        // Sort versions in descending order (newest first)
+        const sorted = [...versions].sort((a, b) => {
+          const aParts = a.replace(/^v/, '').split('.');
+          const bParts = b.replace(/^v/, '').split('.');
+          for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+            const aNum = parseInt(aParts[i] || 0);
+            const bNum = parseInt(bParts[i] || 0);
+            if (aNum !== bNum) return bNum - aNum;
+          }
+          return 0;
+        });
+
+        const html = `
+          <ul class="version-list">
+            ${sorted.map(v => `
+              <li class="version-item${v === latest ? ' latest' : ''}">
+                <div>
+                  <a href="${v}/" class="version-link">${v}</a>
+                  ${v === latest ? '<span class="version-badge">Latest</span>' : ''}
+                </div>
+              </li>
+            `).join('')}
+          </ul>
+        `;
+        versionsList.innerHTML = html;
+      })
+      .catch(err => {
+        console.error('Failed to load versions:', err);
+        versionsList.innerHTML = '<p style="color: #ef4444;">Failed to load versions. <a href="./">View latest documentation</a></p>';
+      });
+  })();
+</script>
+
+</body>
+</html>
