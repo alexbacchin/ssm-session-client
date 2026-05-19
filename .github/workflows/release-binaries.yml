@@ -90,31 +90,16 @@ jobs:
           echo "Skipping signing - WINDOWS_CERT_PFX secret not set"
         fi
 
-    - name: Generate signed executable checksum
+    - name: Generate executable checksum
       run: |
         sha256sum ssm-session-client.exe > ssm-session-client-windows-${{ matrix.goarch }}.exe.sha256
-
-    - name: Zip Windows binary
-      run: |
-        zip ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip \
-          ssm-session-client.exe \
-          ssm-session-client-windows-${{ matrix.goarch }}.exe.sha256
-
-    - name: Generate checksums
-      run: |
-        md5sum ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip > \
-          ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.md5
-        sha256sum ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip > \
-          ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.sha256
 
     - name: Upload to release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh release upload ${{ github.ref_name }} \
-          ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip \
-          ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.md5 \
-          ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip.sha256 \
+          ssm-session-client.exe \
           ssm-session-client-windows-${{ matrix.goarch }}.exe.sha256 \
           --clobber
 
