@@ -30,6 +30,7 @@ func runSSHCompat(t *testing.T, timeout time.Duration, args ...string) (stdout, 
 
 	cmd := exec.CommandContext(ctx, binaryPath, args...) //nolint:gosec
 	cmd.Env = append(os.Environ(),
+		"SSC_CONFIG_FILE=/dev/null",
 		"SSC_AWS_REGION="+globalInfraOutputs.AWSRegion,
 		"SSC_SSH_DIRECT_INSTANCE_CONNECT=true",
 	)
@@ -237,6 +238,7 @@ func TestSSHCompatVSCodeStylePipedStdin(t *testing.T) {
 		"sh",
 	)
 	cmd.Env = append(os.Environ(),
+		"SSC_CONFIG_FILE=/dev/null",
 		"SSC_AWS_REGION="+globalInfraOutputs.AWSRegion,
 		"SSC_SSH_DIRECT_INSTANCE_CONNECT=true",
 	)
@@ -280,6 +282,7 @@ func TestSSHCompatTOFUNewHost(t *testing.T) {
 		"echo", sshCompatMarker,
 	)
 	cmd.Env = append(os.Environ(),
+		"SSC_CONFIG_FILE=/dev/null",
 		"SSC_AWS_REGION="+globalInfraOutputs.AWSRegion,
 		"SSC_SSH_DIRECT_INSTANCE_CONNECT=true",
 	)

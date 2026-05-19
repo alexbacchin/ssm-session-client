@@ -34,6 +34,7 @@ type SSHDirectInput struct {
 	NoHostKeyCheck     bool       // Skip host key verification
 	ExecCommand        string     // Command to execute; empty means interactive shell
 	EphemeralSigner    ssh.Signer // In-memory signer (e.g. from EC2 Instance Connect ephemeral key)
+	EphemeralOnly      bool       // When true, only use EphemeralSigner — skip agent/key-file/password fallbacks
 	DisablePTY         bool       // When true, do not allocate a PTY (equivalent to ssh -T)
 	KnownHostsFile     string     // Custom known_hosts file path (empty = ~/.ssh/known_hosts)
 	ConnectTimeoutSecs int        // Connection timeout in seconds (0 = no timeout)
@@ -90,7 +91,7 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 
 	sshConfig := &ssh.ClientConfig{
 		User:            opts.User,
-		Auth:            buildSSHAuthMethods(opts.KeyFile, opts.EphemeralSigner),
+		Auth:            buildSSHAuthMethods(opts.KeyFile, opts.EphemeralSigner, opts.EphemeralOnly),
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         sshTimeout,
 	}
@@ -130,15 +131,19 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 
 // buildSSHAuthMethods constructs the authentication method chain.
 // When an ephemeral signer is provided (e.g. from EC2 Instance Connect) it is
-// tried first, before SSH agent and key-file methods.
-// Order: ephemeral key → SSH agent → private key file → password prompt.
-func buildSSHAuthMethods(keyFile string, ephemeral ssh.Signer) []ssh.AuthMethod {
+// tried first. If ephemeralOnly is true, no other methods are added.
+// Order (when not ephemeralOnly): ephemeral key → SSH agent → private key file → password prompt.
+func buildSSHAuthMethods(keyFile string, ephemeral ssh.Signer, ephemeralOnly bool) []ssh.AuthMethod {
 	var methods []ssh.AuthMethod
 	var methodNames []string
 
 	if ephemeral != nil {
 		methods = append(methods, ssh.PublicKeys(ephemeral))
 		methodNames = append(methodNames, "instance-connect-ephemeral-key")
+		if ephemeralOnly {
+			zap.S().Warnf("SSH auth methods: %v", methodNames)
+			return methods
+		}
 	}
 
 	if method := trySSHAgentAuth(); method != nil {
@@ -245,7 +250,7 @@ func promptPassword() (string, error) {
 // the known_hosts file and falls back to a Trust-On-First-Use prompt.
 // If customKnownHosts is non-empty, it is used instead of ~/.ssh/known_hosts.
 func buildHostKeyCallback(_ string, noCheck bool, customKnownHosts string) (ssh.HostKeyCallback, error) {
-	if noCheck {
+	if noCheck || customKnownHosts == "/dev/null" {
 		zap.S().Warn("host key verification disabled (--no-host-key-check)")
 		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec
 	}

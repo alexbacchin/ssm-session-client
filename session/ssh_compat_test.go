@@ -159,10 +159,12 @@ func TestResolveKnownHostsFile(t *testing.T) {
 }
 
 func TestResolveKnownHostsFile_DevNull(t *testing.T) {
+	// /dev/null is passed through so buildHostKeyCallback can detect it and
+	// return InsecureIgnoreHostKey, matching OpenSSH's behaviour.
 	args := &SSHArgs{Options: map[string]string{"UserKnownHostsFile": "/dev/null"}}
 	cfg := &SSHHostConfig{}
 	got := resolveKnownHostsFile(args, cfg)
-	if got != "" {
-		t.Errorf("expected empty for /dev/null, got %q", got)
+	if got != "/dev/null" {
+		t.Errorf("expected /dev/null to be passed through, got %q", got)
 	}
 }

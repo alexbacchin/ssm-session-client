@@ -545,6 +545,8 @@ Get-AuthenticodeSignature .\ssm-session-client.exe
             <tr><td>Run a command instead of an interactive shell</td><td><code>ssh-direct.ssh-exec-command</code></td><td><code>SSC_SSH_DIRECT_SSH_EXEC_COMMAND</code></td><td>—</td></tr>
             <tr><td>Push ephemeral key via EC2 Instance Connect</td><td><code>ssh-direct.instance-connect</code></td><td><code>SSC_SSH_DIRECT_INSTANCE_CONNECT</code></td><td>—</td></tr>
             <tr><td>Disable Instance Connect even if set in config</td><td><code>ssh-direct.no-instance-connect</code></td><td><code>SSC_SSH_DIRECT_NO_INSTANCE_CONNECT</code></td><td>—</td></tr>
+            <tr><td>Default SSH username (avoids needing <code>user@</code> in target or <code>~/.ssh/config</code>)</td><td><code>ssh-direct.ssh-user</code></td><td><code>SSC_SSH_DIRECT_SSH_USER</code></td><td>—</td></tr>
+            <tr><td>Default SSH port (avoids needing <code>:port</code> in target or <code>~/.ssh/config</code>)</td><td><code>ssh-direct.ssh-port</code></td><td><code>SSC_SSH_DIRECT_SSH_PORT</code></td><td>—</td></tr>
           </tbody>
         </table>
       </div>
@@ -797,15 +799,18 @@ ssm-session-client ssh-direct ec2-user@i-0123456789abcdef0 --ssh-key ~/.ssh/my-k
 # Run a single command
 ssm-session-client ssh-direct ec2-user@i-0123456789abcdef0 --exec "uptime"
 
-# Using EC2 Instance Connect (no SSH key management needed)
+# Using EC2 Instance Connect (no SSH key management needed — ephemeral key only)
 ssm-session-client ssh-direct ec2-user@i-0123456789abcdef0 --instance-connect
 
-# Custom SSH port
-ssm-session-client ssh-direct ec2-user@i-0123456789abcdef0:2222</code></pre>
+# Custom SSH port embedded in the target
+ssm-session-client ssh-direct ec2-user@i-0123456789abcdef0:2222
+
+# Default user and port via flags (no user@ or :port needed in target)
+ssm-session-client ssh-direct i-0123456789abcdef0 --ssh-user ec2-user --ssh-port 22</code></pre>
 
       <h3>Authentication chain (tried in order)</h3>
       <ol>
-        <li>Ephemeral key via EC2 Instance Connect (when <code>--instance-connect</code> is used)</li>
+        <li>Ephemeral key via EC2 Instance Connect (when <code>--instance-connect</code> is used — <strong>only</strong> this method is tried; agent/key-file/password fallbacks are skipped)</li>
         <li>SSH agent (<code>SSH_AUTH_SOCK</code>)</li>
         <li>Private key file (<code>--ssh-key</code> or auto-discovered <code>~/.ssh/id_ed25519</code> / <code>~/.ssh/id_rsa</code>)</li>
         <li>Password prompt (interactive)</li>
@@ -815,14 +820,32 @@ ssm-session-client ssh-direct ec2-user@i-0123456789abcdef0:2222</code></pre>
         <strong>Host key verification</strong> uses Trust-On-First-Use (TOFU): on the first
         connection the host key is saved to <code>~/.ssh/known_hosts</code>. Use
         <code>--no-host-key-check</code> to skip verification (not recommended for production).
+        Passing <code>-o UserKnownHostsFile=/dev/null</code> in SSH-compat mode also disables
+        host key checking, matching OpenSSH behaviour.
       </div>
+
+      <h3>Avoiding dependency on <code>~/.ssh/config</code></h3>
+      <p>
+        By default the target must include a <code>user@</code> prefix and an optional
+        <code>:port</code> suffix, or those values must come from <code>~/.ssh/config</code>.
+        The <code>ssh-user</code> and <code>ssh-port</code> settings let you set these defaults
+        in the app config file (or via environment variables) so neither is required in the
+        target argument or in an SSH config file.
+      </p>
+      <p>Priority for each value (highest wins):</p>
+      <ul>
+        <li><strong>User:</strong> <code>user@target</code> positional arg &gt; <code>-l</code> flag (compat mode) &gt; <code>~/.ssh/config</code> (compat mode) &gt; <code>ssh-direct.ssh-user</code> config/env &gt; built-in default (<code>ec2-user</code>)</li>
+        <li><strong>Port:</strong> <code>target:port</code> positional arg &gt; <code>-p</code> flag (compat mode) &gt; <code>~/.ssh/config</code> (compat mode) &gt; <code>ssh-direct.ssh-port</code> config/env &gt; built-in default (<code>22</code>)</li>
+      </ul>
 
       <h3>Config file example</h3>
       <p>ssh-direct options live under the <code>ssh-direct:</code> section in the config file:</p>
 <pre><code class="language-yaml">ssh-direct:
   ssh-key-file: ~/.ssh/id_ed25519   # private key (omit to auto-discover)
   no-host-key-check: false          # set true only in trusted environments
-  instance-connect: true            # push ephemeral key via EC2 Instance Connect</code></pre>
+  instance-connect: true            # push ephemeral key via EC2 Instance Connect
+  ssh-user: ubuntu                  # default username (avoids needing user@target or ~/.ssh/config)
+  ssh-port: 22                      # default SSH port (avoids needing target:port or ~/.ssh/config)</code></pre>
 
       <!-- VSCode -->
       <h2 id="mode-vscode">VSCode Remote SSH Integration</h2>
@@ -858,6 +881,15 @@ Host my-server
 Host i-*
   User ec2-user
   StrictHostKeyChecking accept-new</code></pre>
+            <p style="margin-top:0.75rem;">
+              Alternatively, set the default username and port in the
+              <a href="#config-file">app config file</a> so you do not need an SSH config file at
+              all — useful on Windows or in environments where <code>~/.ssh/config</code> is managed
+              by policy:
+            </p>
+<pre><code class="language-yaml">ssh-direct:
+  ssh-user: ec2-user
+  instance-connect: true</code></pre>
           </div>
         </li>
         <li>
@@ -1160,7 +1192,10 @@ go test ./ssmclient/... -run TestTargetResolver -race</code></pre>
       <ul>
         <li>Shell access by instance ID, tag, alias, private IP, and DNS TXT record</li>
         <li>SSH direct and SSH proxy connections</li>
-        <li>EC2 Instance Connect session</li>
+        <li>EC2 Instance Connect with ephemeral key (instance-connect mode)</li>
+        <li>SSH direct / SSH compat user and port defaults from app config file and CLI flags — no <code>~/.ssh/config</code> required</li>
+        <li>SSH compat mode: VSCode-style flags, compound flags, piped stdin, TOFU host key prompt</li>
+        <li>Host key verification: TOFU accept-new, known_hosts persistence, <code>/dev/null</code> bypass</li>
         <li>Port forwarding (single and multiple concurrent connections)</li>
         <li>RDP tunnel (Windows runner, optional)</li>
         <li>SSO login with cached token (optional, requires an SSO profile)</li>

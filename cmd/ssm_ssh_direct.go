@@ -44,6 +44,8 @@ func init() {
 	ssmSshDirectCmd.Flags().StringVar(&config.Flags().SSHDirect.SSHExecCommand, "exec", "", "Execute command instead of starting an interactive shell")
 	ssmSshDirectCmd.Flags().BoolVar(&config.Flags().SSHDirect.UseInstanceConnect, "instance-connect", false, "Push a temporary SSH key via EC2 Instance Connect (no key files needed)")
 	ssmSshDirectCmd.Flags().BoolVar(&config.Flags().SSHDirect.NoInstanceConnect, "no-instance-connect", false, "Disable EC2 Instance Connect even if enabled in config file")
+	ssmSshDirectCmd.Flags().StringVar(&config.Flags().SSHDirect.SSHUser, "ssh-user", "", "Default SSH username (overrides built-in default of ec2-user)")
+	ssmSshDirectCmd.Flags().IntVar(&config.Flags().SSHDirect.SSHPort, "ssh-port", 0, "Default SSH port (overrides built-in default of 22)")
 
 	// Bind flags to Viper so preRun's viper.Unmarshal preserves their values.
 	viper.BindPFlag("ssh-direct.ssh-key-file", ssmSshDirectCmd.Flags().Lookup("ssh-key"))                    //nolint:errcheck
@@ -51,4 +53,6 @@ func init() {
 	viper.BindPFlag("ssh-direct.ssh-exec-command", ssmSshDirectCmd.Flags().Lookup("exec"))                   //nolint:errcheck
 	viper.BindPFlag("ssh-direct.instance-connect", ssmSshDirectCmd.Flags().Lookup("instance-connect"))       //nolint:errcheck
 	viper.BindPFlag("ssh-direct.no-instance-connect", ssmSshDirectCmd.Flags().Lookup("no-instance-connect")) //nolint:errcheck
+	viper.BindPFlag("ssh-direct.ssh-user", ssmSshDirectCmd.Flags().Lookup("ssh-user"))                       //nolint:errcheck
+	viper.BindPFlag("ssh-direct.ssh-port", ssmSshDirectCmd.Flags().Lookup("ssh-port"))                       //nolint:errcheck
 }

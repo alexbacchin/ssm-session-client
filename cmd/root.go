@@ -109,6 +109,7 @@ func initConfig() {
 
 // LoadConfig reads the config file and SSC_ environment variables into config.Flags().
 // It can be called from outside the cobra command pipeline (e.g. SSH compat mode).
+// If cfgFile is empty, SSC_CONFIG_FILE env var is checked before auto-discovery.
 func LoadConfig(cfgFile string) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -126,6 +127,9 @@ func LoadConfig(cfgFile string) {
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	viper.AutomaticEnv()
 
+	if cfgFile == "" {
+		cfgFile = os.Getenv("SSC_CONFIG_FILE")
+	}
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	}

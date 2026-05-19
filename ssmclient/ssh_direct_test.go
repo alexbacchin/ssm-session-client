@@ -26,7 +26,7 @@ func TestBuildSSHAuthMethodsEmpty(t *testing.T) {
 	// Ensure SSH_AUTH_SOCK is not set so the agent path is skipped.
 	t.Setenv("SSH_AUTH_SOCK", "")
 
-	methods := buildSSHAuthMethods("/nonexistent/key", nil)
+	methods := buildSSHAuthMethods("/nonexistent/key", nil, false)
 	if len(methods) == 0 {
 		t.Fatal("expected at least one auth method (password fallback)")
 	}
@@ -40,7 +40,7 @@ func TestBuildSSHAuthMethodsWithKey(t *testing.T) {
 
 	keyPath := generateTestKey(t)
 
-	methods := buildSSHAuthMethods(keyPath, nil)
+	methods := buildSSHAuthMethods(keyPath, nil, false)
 	// Expect: publickeys + password
 	if len(methods) < 2 {
 		t.Errorf("expected at least 2 auth methods, got %d", len(methods))
@@ -332,7 +332,7 @@ func TestBuildSSHAuthMethodsEphemeralFirst(t *testing.T) {
 
 	keyPath := generateTestKey(t)
 
-	withoutEphemeral := buildSSHAuthMethods(keyPath, nil)
+	withoutEphemeral := buildSSHAuthMethods(keyPath, nil, false)
 	countWithout := len(withoutEphemeral)
 
 	// Generate an ephemeral signer.
@@ -345,7 +345,7 @@ func TestBuildSSHAuthMethodsEphemeralFirst(t *testing.T) {
 		t.Fatalf("create signer: %v", err)
 	}
 
-	withEphemeral := buildSSHAuthMethods(keyPath, signer)
+	withEphemeral := buildSSHAuthMethods(keyPath, signer, false)
 	countWith := len(withEphemeral)
 
 	if countWith != countWithout+1 {
@@ -362,7 +362,7 @@ func TestBuildSSHAuthMethodsPasswordAlwaysPresent(t *testing.T) {
 	// Baseline: no ephemeral. Auto-discovery may find ~/.ssh/id_ed25519 or id_rsa.
 	// loadSSHPrivateKey returns at most one key (the first found).
 	// Methods: [auto-discovered key (if any)] + password = at least 1.
-	baseline := buildSSHAuthMethods("", nil)
+	baseline := buildSSHAuthMethods("", nil, false)
 	if len(baseline) < 1 {
 		t.Fatal("expected at least 1 method (password)")
 	}
@@ -371,10 +371,32 @@ func TestBuildSSHAuthMethodsPasswordAlwaysPresent(t *testing.T) {
 	// With ephemeral, should have exactly one more method than baseline.
 	priv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	signer, _ := ssh.NewSignerFromKey(priv)
-	withEphemeral := buildSSHAuthMethods("", signer)
+	withEphemeral := buildSSHAuthMethods("", signer, false)
 	if len(withEphemeral) != len(baseline)+1 {
 		t.Errorf("ephemeral should add exactly 1 method: baseline=%d withEphemeral=%d",
 			len(baseline), len(withEphemeral))
+	}
+}
+
+// TestBuildSSHAuthMethodsEphemeralOnly verifies that when ephemeralOnly is true,
+// only the ephemeral method is returned — no agent, key file, or password fallback.
+func TestBuildSSHAuthMethodsEphemeralOnly(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	keyPath := generateTestKey(t)
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+
+	methods := buildSSHAuthMethods(keyPath, signer, true)
+	if len(methods) != 1 {
+		t.Errorf("ephemeralOnly: expected exactly 1 auth method, got %d", len(methods))
 	}
 }
 
