@@ -12,7 +12,15 @@ import (
 // StartSSHDirectSession starts a direct SSH session to the target EC2 instance
 // via AWS SSM without requiring an external SSH client.
 func StartSSHDirectSession(target string) error {
-	user, host, port, err := ParseHostPort(target, "ec2-user", 22)
+	defaultUser := config.Flags().SSHDirect.SSHUser
+	if defaultUser == "" {
+		defaultUser = "ec2-user"
+	}
+	defaultPort := config.Flags().SSHDirect.SSHPort
+	if defaultPort == 0 {
+		defaultPort = 22
+	}
+	user, host, port, err := ParseHostPort(target, defaultUser, defaultPort)
 	if err != nil {
 		zap.S().Fatal(err)
 	}
@@ -69,5 +77,6 @@ func prepareInstanceConnect(ctx context.Context, instanceID, user string, opts *
 	}
 
 	opts.EphemeralSigner = signer
+	opts.EphemeralOnly = true
 	return nil
 }

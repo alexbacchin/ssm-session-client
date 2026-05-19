@@ -13,6 +13,8 @@ type SSHDirectConfig struct {
 	SSHExecCommand     string `mapstructure:"ssh-exec-command"`
 	UseInstanceConnect bool   `mapstructure:"instance-connect"`
 	NoInstanceConnect  bool   `mapstructure:"no-instance-connect"`
+	SSHUser            string `mapstructure:"ssh-user"`
+	SSHPort            int    `mapstructure:"ssh-port"`
 }
 
 type Config struct {

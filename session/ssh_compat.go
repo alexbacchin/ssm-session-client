@@ -100,6 +100,7 @@ func RunSSHCompat(osArgs []string) error {
 }
 
 // mergeSSHUser determines the effective SSH username from CLI args and config.
+// Priority: CLI -l flag > user@host > ssh_config > app config file > built-in default.
 func mergeSSHUser(args *SSHArgs, cfg *SSHHostConfig) string {
 	if args.User != "" {
 		return args.User
@@ -107,10 +108,14 @@ func mergeSSHUser(args *SSHArgs, cfg *SSHHostConfig) string {
 	if cfg.User != "" {
 		return cfg.User
 	}
+	if u := config.Flags().SSHDirect.SSHUser; u != "" {
+		return u
+	}
 	return "ec2-user"
 }
 
 // mergeSSHPort determines the effective SSH port from CLI args and config.
+// Priority: CLI -p flag > ssh_config > app config file > built-in default.
 func mergeSSHPort(args *SSHArgs, cfg *SSHHostConfig) int {
 	// If -p was explicitly set (not default)
 	if args.Port != 22 {
@@ -120,6 +125,9 @@ func mergeSSHPort(args *SSHArgs, cfg *SSHHostConfig) int {
 		if p, err := strconv.Atoi(cfg.Port); err == nil {
 			return p
 		}
+	}
+	if p := config.Flags().SSHDirect.SSHPort; p != 0 {
+		return p
 	}
 	return 22
 }
@@ -146,10 +154,6 @@ func isHostKeyCheckDisabled(val string) bool {
 // resolveKnownHostsFile determines the custom known_hosts file path.
 func resolveKnownHostsFile(args *SSHArgs, cfg *SSHHostConfig) string {
 	if val, ok := args.GetOption("UserKnownHostsFile"); ok {
-		// /dev/null means "don't use known_hosts" - handled by NoHostKeyCheck
-		if val == "/dev/null" {
-			return ""
-		}
 		return expandTilde(val)
 	}
 	if cfg.UserKnownHostsFile != "" {
