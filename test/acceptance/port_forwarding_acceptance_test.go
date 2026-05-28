@@ -81,6 +81,10 @@ func TestPortForwardingMultipleConnections(t *testing.T) {
 			t.Errorf("concurrent connection failed: %v", err)
 		}
 	}
+
+	// Give the port-forwarder process time to process the smux stream closures
+	// and begin session termination before the leak check runs.
+	time.Sleep(2 * time.Second)
 }
 
 // TestPortForwardingToRDPPort forwards a local port to port 3389 on the Windows test instance
