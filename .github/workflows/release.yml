@@ -5,6 +5,17 @@ on:
   push:
     tags:
       - "v*"
+  # Allow manual release workflow trigger (e.g., to skip acceptance tests for doc-only changes)
+  workflow_dispatch:
+    inputs:
+      skip-acceptance:
+        description: "Skip acceptance tests (useful for doc-only changes)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   id-token: write   # OIDC for AWS acceptance tests
@@ -46,6 +57,7 @@ jobs:
     name: Acceptance tests
     needs: unit-tests
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.inputs.skip-acceptance != 'true'
     concurrency:
       group: acceptance-tests-infra
       cancel-in-progress: false
@@ -110,8 +122,9 @@ jobs:
   # ---------------------------------------------------------------------------
   create-release:
     name: Create GitHub release
-    needs: acceptance-tests
+    needs: [unit-tests, acceptance-tests]
     runs-on: ubuntu-latest
+    if: always() && (needs.unit-tests.result == 'success') && (github.event_name == 'push' || needs.acceptance-tests.result == 'success' || needs.acceptance-tests.result == 'skipped')
     outputs:
       tag: ${{ github.ref_name }}
 
