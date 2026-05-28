@@ -1,5 +1,7 @@
 name: Deploy GitHub Pages
 
+# NOTE: This workflow only triggers on release publication or manual dispatch.
+# It does NOT trigger on pushes to main.
 on:
   # Deploy automatically when a release is published
   release:
