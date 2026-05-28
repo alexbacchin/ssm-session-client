@@ -1,0 +1,108 @@
+name: Deploy Docs
+
+# Manual trigger to deploy documentation for any tag (past or present)
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to deploy documentation for (e.g. v1.2.3)"
+        required: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy-docs:
+    name: Deploy documentation for ${{ github.event.inputs.tag }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag }}
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build versioned documentation
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+
+          # Create a working directory for the site
+          mkdir -p site
+
+          # Copy current docs (will be used for versioned copy and root)
+          cp -r docs/* site/
+
+          # Create a versioned copy
+          echo "Building versioned documentation for $TAG"
+          mkdir -p "site/$TAG"
+          cp -r docs/* "site/$TAG/"
+          sed -i "s|%%VERSION%%|$TAG|g" "site/$TAG/index.html"
+
+          # Get all version tags and separate stable from pre-release
+          echo "Building versions list from git tags"
+          ALL_TAGS=$(git tag -l 'v[0-9]*' | sort -V -r)
+
+          # Find latest stable release (no -alpha, -beta, -rc suffix)
+          LATEST_STABLE=$(echo "$ALL_TAGS" | grep -v -E '\-(alpha|beta|rc)' | head -1)
+
+          # If no stable found, use the latest pre-release
+          if [ -z "$LATEST_STABLE" ]; then
+            LATEST_STABLE=$(echo "$ALL_TAGS" | head -1)
+          fi
+
+          echo "Latest stable release: $LATEST_STABLE"
+          echo "Current tag: $TAG"
+
+          # Determine what version should be at root (latest stable)
+          ROOT_VERSION="$LATEST_STABLE"
+          if [ -z "$ROOT_VERSION" ]; then
+            ROOT_VERSION="$TAG"
+          fi
+
+          echo "Root documentation will point to: $ROOT_VERSION"
+
+          # Set root docs to latest stable
+          if [ "$ROOT_VERSION" = "$TAG" ]; then
+            # Current tag is the latest stable, update root
+            sed -i "s|%%VERSION%%|$TAG|g" site/index.html
+          else
+            # Current tag is pre-release, use latest stable for root
+            sed -i "s|%%VERSION%%|$ROOT_VERSION|g" site/index.html
+            # Also create root copy if not already present
+            if [ ! -f "site/index.html" ]; then
+              cp -r docs/* site/
+              sed -i "s|%%VERSION%%|$ROOT_VERSION|g" site/index.html
+            fi
+          fi
+
+          # Build versions.json with all versions
+          ALL_TAGS_JSON=$(echo "$ALL_TAGS" | jq -R . | jq -s .)
+
+          echo "Creating versions index"
+          jq -n \
+            --arg latest "$ROOT_VERSION" \
+            --argjson versions "$ALL_TAGS_JSON" \
+            '{latest: $latest, versions: $versions}' > site/versions.json
+
+          echo "Generated versions.json:"
+          cat site/versions.json
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
