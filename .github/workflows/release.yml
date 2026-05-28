@@ -5,6 +5,12 @@ on:
   push:
     tags:
       - "v*"
+  # Allow manual documentation deployment for any tag
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to deploy documentation for (e.g. v1.2.3)"
+        required: true
 
 permissions:
   id-token: write   # OIDC for AWS acceptance tests
@@ -288,8 +294,9 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-docs:
     name: Deploy documentation
-    needs: [release-binaries, release-binaries-arm, release-windows-signed]
+    # Only run after binaries are built (on tag push); skip dependency check on manual dispatch
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || success()
     permissions:
       contents: read
       pages: write
@@ -309,7 +316,8 @@ jobs:
 
       - name: Build versioned documentation
         run: |
-          TAG="${{ github.ref_name }}"
+          # Use manual input tag if provided (workflow_dispatch), otherwise use push tag
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
 
           # Create a working directory for the site
           mkdir -p site
