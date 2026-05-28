@@ -61,14 +61,19 @@ jobs:
             sed -i "s|%%VERSION%%|$TAG|g" site/index.html
             sed -i "s|%%VERSION%%|$TAG|g" "site/$TAG/index.html"
 
-            # Create a versions index file
+            # Build versions list from git tags (all version tags)
+            echo "Building versions list from git tags"
+            ALL_TAGS=$(git tag -l 'v[0-9]*' | sort -V -r | jq -R . | jq -s .)
+
+            # Fallback: if no tags, at least include the current tag
+            if [ -z "$ALL_TAGS" ] || [ "$ALL_TAGS" = "[]" ]; then
+              ALL_TAGS=$(jq -n --arg tag "$TAG" '[$tag]')
+            fi
+
             echo "Creating versions index"
-            cat > site/versions.json <<EOF
-          {
-            "latest": "$TAG",
-            "versions": ["$TAG"]
-          }
-          EOF
+            jq -n --arg latest "$TAG" --argjson versions "$ALL_TAGS" '{latest: $latest, versions: $versions}' > site/versions.json
+            echo "Generated versions.json:"
+            cat site/versions.json
           else
             echo "No version tag — deploying as latest without versioning"
             sed -i "s|%%VERSION%%|latest|g" site/index.html
