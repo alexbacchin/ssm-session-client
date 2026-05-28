@@ -2,29 +2,43 @@ package cmd
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/alexbacchin/ssm-session-client/session"
 	"github.com/spf13/cobra"
 )
 
+var (
+	portForwardingRemotePort int
+	portForwardingLocalPort  int
+	portForwardingHost       string
+)
+
 var portForwardingCmd = &cobra.Command{
-	Use:   "port-forwarding [target:destination port] [source port]",
-	Short: "Start a Port Forwarding Shell Session",
-	Long:  `Start a Port Forwarding via AWS SSM Session Manager`,
-	Args:  cobra.MatchAll(cobra.MinimumNArgs(1), cobra.OnlyValidArgs),
-	Run: func(cmd *cobra.Command, args []string) {
-		var err error
-		sourcePort, err := strconv.Atoi(args[1])
-		if err != nil {
-			fmt.Println("Invalid source port:", args[1])
-			return
+	Use:   "port-forwarding <target>",
+	Short: "Start a port forwarding session",
+	Long: `Forward a local TCP port through an EC2 instance via AWS SSM Session Manager.
+
+Use --host to forward to a service reachable from the instance but not directly accessible locally.
+
+Examples:
+  # Forward to SSH port on the instance
+  port-forwarding i-1234567890abcdef0 --remote-port 22 --local-port 2222
+
+  # Forward through instance to a remote database
+  port-forwarding i-1234567890abcdef0 --remote-port 5432 --host db.internal`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if portForwardingRemotePort == 0 {
+			return fmt.Errorf("--remote-port is required")
 		}
 		session.InitializeClient()
-		session.StartSSMPortForwarder(args[0], sourcePort)
+		return session.StartSSMPortForwarder(args[0], portForwardingLocalPort, portForwardingRemotePort, portForwardingHost)
 	},
 }
 
 func init() {
+	portForwardingCmd.Flags().IntVar(&portForwardingRemotePort, "remote-port", 0, "Port on the target instance (or --host) to connect to (required)")
+	portForwardingCmd.Flags().IntVar(&portForwardingLocalPort, "local-port", 0, "Local port to listen on (default: random)")
+	portForwardingCmd.Flags().StringVar(&portForwardingHost, "host", "", "Remote host reachable from the instance to forward to")
 	rootCmd.AddCommand(portForwardingCmd)
 }

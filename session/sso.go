@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -36,11 +37,17 @@ type SSOLoginInput struct {
 
 	// ForceLogin if true forces a new SSO OIDC flow even if the cached creds are still valid.
 	ForceLogin bool
+
+	// URLWriter where to write the auth URL in headless mode; defaults to os.Stderr if nil
+	URLWriter io.Writer
 }
 
 func (v *SSOLoginInput) validate() error {
 	if v.LoginTimeout == 0 {
 		v.LoginTimeout = 90 * time.Second
+	}
+	if v.URLWriter == nil {
+		v.URLWriter = os.Stderr
 	}
 	return nil
 }
@@ -138,7 +145,7 @@ func SSOLogin(ctx context.Context, params *SSOLoginInput) (*SSOLoginOutput, erro
 
 	// Creds are invalid, try logging in again
 	if credCacheError != nil || callerIDError != nil || params.ForceLogin {
-		cacheFile, err := ssoLoginFlow(ctx, profile, params.Headed, params.LoginTimeout)
+		cacheFile, err := ssoLoginFlow(ctx, profile, params.Headed, params.LoginTimeout, params.URLWriter)
 		if err != nil {
 			zap.S().Error("Error running ssoLoginFlow: ", err)
 			return nil, err
@@ -320,6 +327,7 @@ func ssoLoginFlow(
 	profile *configProfile,
 	headed bool,
 	loginTimeout time.Duration,
+	urlWriter io.Writer,
 ) (*cacheFileData, error) {
 	// RegisterClient, StartDeviceAuthorization, and CreateToken are all unsigned
 	// SSO OIDC operations — they require only the SSO region, not AWS credentials.
@@ -362,7 +370,7 @@ func ssoLoginFlow(
 			return nil, BrowserOpenError{err}
 		}
 	} else {
-		_, _ = fmt.Fprintf(os.Stderr, "Open the following URL in your browser: %s\n", authUrl)
+		_, _ = fmt.Fprintf(urlWriter, "Open the following URL in your browser: %s\n", authUrl)
 	}
 
 	var createTokenErr error
@@ -626,4 +634,31 @@ func (e CacheFileCreationError) Error() string {
 
 func (e CacheFileCreationError) Unwrap() error {
 	return e.Err
+}
+
+// SSOLogout removes the cached SSO token for the given profile.
+func SSOLogout(ctx context.Context, profileName string) error {
+	configFilePath := config.DefaultSharedConfigFilename()
+	profile, err := getConfigProfile(profileName, configFilePath)
+	if err != nil {
+		return err
+	}
+	cacheFilePath, err := getCacheFilePath(profile)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(cacheFilePath)
+	if os.IsNotExist(err) {
+		return SSONotLoggedInError{ProfileName: profileName}
+	}
+	return err
+}
+
+// SSONotLoggedInError is returned when trying to logout but no cached token exists
+type SSONotLoggedInError struct {
+	ProfileName string
+}
+
+func (e SSONotLoggedInError) Error() string {
+	return fmt.Sprintf("No cached SSO credentials found for profile '%s'", e.ProfileName)
 }

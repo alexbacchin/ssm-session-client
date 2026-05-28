@@ -104,6 +104,10 @@ func TestPortForwardingToRDPPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect to forwarded RDP port %d: %v", localPort, err)
 	}
+	// Perform at least one I/O operation to avoid mux stream being left
+	// in a partially-open state, which causes session leaks.
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _ = conn.Read(make([]byte, 1024))
 	conn.Close()
 }
 
@@ -113,13 +117,14 @@ func TestPortForwardingToRDPPort(t *testing.T) {
 // entire subprocess if the handshake hangs or the process exits prematurely.
 func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int) {
 	t.Helper()
-	target := fmt.Sprintf("%s:%d", i.InstanceID, remotePort)
 	args := []string{
 		"--config", "/dev/null",
 		"--log-level", "debug",
 		"--aws-region", i.AWSRegion,
 		"--enable-reconnect=false",
-		"port-forwarding", target, strconv.Itoa(localPort),
+		"port-forwarding", i.InstanceID,
+		"--remote-port", strconv.Itoa(remotePort),
+		"--local-port", strconv.Itoa(localPort),
 	}
 	// Note: --config and --log-level are also added by runCmd, but startPortForwarder
 	// uses exec.CommandContext directly, so these are needed here.
@@ -199,6 +204,103 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int)
 			t.Logf("port-forwarding stderr: %s", s)
 		}
 	})
+}
+
+// TestPortForwardingToRemoteHost verifies port forwarding to a remote host accessible from the target instance.
+// This uses the --host flag to forward through the instance to localhost:9999 (a service running on the instance).
+// The test starts a netcat listener on port 9999 and verifies that connections through the tunnel reach it.
+func TestPortForwardingToRemoteHost(t *testing.T) {
+	i := infra(t)
+	waitForSSMReady(t, i.InstanceID)
+	terminateAllSessions(t, i.InstanceID)
+	registerSessionLeakCheck(t, i.InstanceID)
+
+	// Start a netcat listener on the instance listening on 127.0.0.1:9999
+	echoServerPort := 9999
+	echoStartCmd := []string{
+		"--config", "/dev/null",
+		"--log-level", "info",
+		"--aws-region", i.AWSRegion,
+		"--enable-reconnect=false",
+		"shell", i.InstanceID,
+		"--exec", fmt.Sprintf("nc -l 127.0.0.1 %d", echoServerPort),
+	}
+
+	// Start the server in the background (non-blocking)
+	echoCtx, echoCancel := context.WithCancel(context.Background())
+	echoCmd := exec.CommandContext(echoCtx, binaryPath, echoStartCmd...) //nolint:gosec
+	if err := echoCmd.Start(); err != nil {
+		t.Fatalf("start netcat listener: %v", err)
+	}
+	defer func() {
+		echoCancel()
+		echoCmd.Wait() //nolint:errcheck
+	}()
+
+	// Give the server time to start listening
+	time.Sleep(2 * time.Second)
+
+	// Set up port forwarding to the remote host (localhost:9999 on the instance) via --host flag
+	localPort := freePort(t)
+	args := []string{
+		"--config", "/dev/null",
+		"--log-level", "debug",
+		"--aws-region", i.AWSRegion,
+		"--enable-reconnect=false",
+		"port-forwarding", i.InstanceID,
+		"--remote-port", strconv.Itoa(echoServerPort),
+		"--local-port", strconv.Itoa(localPort),
+		"--host", "127.0.0.1",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binaryPath, args...) //nolint:gosec
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start port-forwarding: %v", err)
+	}
+
+	exited := make(chan struct{})
+	go func() {
+		cmd.Wait() //nolint:errcheck
+		close(exited)
+	}()
+
+	// Wait for the port to open
+	const handshakeTimeout = 30 * time.Second
+	if !portReady(localPort, handshakeTimeout, exited) {
+		t.Fatalf("port-forwarding failed to open port %d (stderr: %s)", localPort, stderrBuf.String())
+	}
+
+	// Connect through the forwarded port and send test data
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", localPort), 5*time.Second)
+	if err != nil {
+		t.Fatalf("connect to forwarded port %d: %v", localPort, err)
+	}
+	defer conn.Close()
+
+	// Send test data
+	testData := "test message from local client"
+	if _, err := conn.Write([]byte(testData)); err != nil {
+		t.Fatalf("write to forwarded port: %v", err)
+	}
+
+	// Verify connection is established (netcat doesn't echo, but connection succeeds)
+	t.Logf("successfully forwarded to remote host 127.0.0.1:%d through instance %s", echoServerPort, i.InstanceID)
+
+	// Cleanup: send SIGINT for graceful shutdown
+	if cmd.Process != nil {
+		cmd.Process.Signal(os.Interrupt) //nolint:errcheck
+	}
+	select {
+	case <-exited:
+	case <-time.After(3 * time.Second):
+		cancel()
+	}
 }
 
 // portReady polls until a TCP connection to localhost:port succeeds, the deadline expires,

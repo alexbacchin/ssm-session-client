@@ -112,10 +112,10 @@ func TestMergeSSHPort(t *testing.T) {
 
 func TestResolveHostKeyCheck(t *testing.T) {
 	tests := []struct {
-		name    string
-		optVal  string
-		cfgVal  string
-		want    bool
+		name   string
+		optVal string
+		cfgVal string
+		want   bool
 	}{
 		{"no option", "", "", false},
 		{"-o no", "no", "", true},

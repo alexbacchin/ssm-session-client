@@ -19,6 +19,7 @@ const agentMsgHeaderLen = 116 // the binary size of all AgentMessage fields exce
 // between local clients (like this), and remote agents installed on EC2 instances.
 // This is the order the fields must appear as on the wire
 // REF: https://github.com/aws/amazon-ssm-agent/blob/master/agent/session/contracts/agentmessage.go.
+//
 //nolint:maligned
 type AgentMessage struct {
 	headerLength   uint32

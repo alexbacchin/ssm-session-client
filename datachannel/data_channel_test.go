@@ -482,7 +482,7 @@ func TestBuildHandshakeResponse_KMSEncryption_WithMockKMS(t *testing.T) {
 	cipherBlob := []byte("mock-cipher-blob")
 
 	c.kmsClientOverride = &mockKMSClient{
-		plaintext:     plainKey,
+		plaintext:      plainKey,
 		ciphertextBlob: cipherBlob,
 	}
 
