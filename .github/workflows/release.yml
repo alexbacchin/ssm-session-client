@@ -282,3 +282,25 @@ jobs:
             ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.md5 \
             ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.sha256 \
             --clobber
+
+  # ---------------------------------------------------------------------------
+  # Stage 5: Deploy documentation
+  # ---------------------------------------------------------------------------
+  trigger-deploy-docs:
+    name: Trigger documentation deployment
+    needs: [release-binaries, release-binaries-arm, release-windows-signed]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deploy-docs workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-docs.yml',
+              ref: 'main',
+              inputs: {
+                tag: context.ref.replace('refs/tags/', '')
+              }
+            })
