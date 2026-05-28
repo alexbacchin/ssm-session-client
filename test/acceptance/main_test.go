@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect"
 )
 
@@ -240,4 +240,3 @@ func pushKeyViaSDK(t *testing.T, instanceID, user, pubKeyContent string) {
 		t.Fatalf("pushKeyViaSDK: SendSSHPublicKey: %v", err)
 	}
 }
-

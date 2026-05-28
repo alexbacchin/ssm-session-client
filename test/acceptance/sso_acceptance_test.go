@@ -54,12 +54,10 @@ func ssoEnv(profile string) []string {
 }
 
 // TestSSOLoginWithCachedToken verifies that the --sso-login and --aws-profile flags
-// authenticate via SSO and successfully establish an SSM session.
+// work with cached SSO credentials and successfully establish an SSM session.
 //
 // The test assumes valid SSO credentials are already cached (e.g. after running
-// "aws sso login --profile <profile>" beforehand). If credentials are expired or
-// absent the binary will attempt the device-code flow and the test will fail when
-// the timeout elapses without user interaction.
+// "aws sso login --profile <profile>" beforehand).
 //
 // Required env vars:
 //   - SSC_SSO_TEST_PROFILE: name of an AWS CLI profile with SSO configuration.
@@ -138,7 +136,7 @@ func TestSSOLoginInteractive(t *testing.T) {
 	registerSessionLeakCheck(t, i.InstanceID)
 
 	// Phase 3: run the assertion command with the cached token (no browser prompt).
-	stdout, stderr, code := runCmdStreaming(t, ssoTimeout, ssoEnv(profile),
+	stdout, stderr, code := runCmdStreaming(t, ssoTimeout, nil,
 		"--sso-login", "--aws-profile", profile,
 		"ssh-direct", "--no-host-key-check", "--instance-connect",
 		"--exec", "echo "+shellMarker, target,

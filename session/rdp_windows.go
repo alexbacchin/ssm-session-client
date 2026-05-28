@@ -139,8 +139,8 @@ func allocateFreePort() (int, error) {
 }
 
 var (
-	user32           = syscall.NewLazyDLL("user32.dll")
-	kernel32         = syscall.NewLazyDLL("kernel32.dll")
+	user32               = syscall.NewLazyDLL("user32.dll")
+	kernel32             = syscall.NewLazyDLL("kernel32.dll")
 	procOpenClipboard    = user32.NewProc("OpenClipboard")
 	procCloseClipboard   = user32.NewProc("CloseClipboard")
 	procEmptyClipboard   = user32.NewProc("EmptyClipboard")
@@ -183,7 +183,11 @@ func setClipboard(text string) error {
 	}
 
 	src := unsafe.Slice((*byte)(unsafe.Pointer(&utf16[0])), size)
-	dst := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), size) //nolint:unsafeptr // ptr is from GlobalLock
+	// Create slice from locked memory pointer returned by GlobalLock.
+	// ptr is a uintptr from the Windows API syscall. Converting to unsafe.Pointer
+	// immediately after the syscall is the standard Windows interop pattern.
+	bytePtr := (*byte)(unsafe.Pointer(ptr)) //nolint:unsafeptr
+	dst := unsafe.Slice(bytePtr, size)
 	copy(dst, src)
 
 	procGlobalUnlock.Call(h) //nolint:errcheck
@@ -205,4 +209,3 @@ func clearClipboard() {
 	procEmptyClipboard.Call() //nolint:errcheck
 	procCloseClipboard.Call() //nolint:errcheck
 }
-

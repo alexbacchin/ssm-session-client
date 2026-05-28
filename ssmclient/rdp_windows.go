@@ -8,8 +8,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"strings"
 	"os/exec"
+	"strings"
 	"unicode/utf16"
 	"unsafe"
 

@@ -138,10 +138,10 @@ func TestPingIntervalCalculation(t *testing.T) {
 // TestReconnectConfiguration tests reconnection configuration values.
 func TestReconnectConfiguration(t *testing.T) {
 	tests := []struct {
-		name          string
+		name            string
 		enableReconnect bool
 		maxReconnects   int
-		wantValid     bool
+		wantValid       bool
 	}{
 		{"enabled with limit", true, 5, true},
 		{"enabled unlimited", true, 0, true},
@@ -177,7 +177,7 @@ func TestReconnectBackoff(t *testing.T) {
 		{2, 1 * time.Second, 30 * time.Second, 4 * time.Second},
 		{3, 1 * time.Second, 30 * time.Second, 8 * time.Second},
 		{4, 1 * time.Second, 30 * time.Second, 16 * time.Second},
-		{5, 1 * time.Second, 30 * time.Second, 30 * time.Second}, // capped
+		{5, 1 * time.Second, 30 * time.Second, 30 * time.Second},  // capped
 		{10, 1 * time.Second, 30 * time.Second, 30 * time.Second}, // stays capped
 	}
 

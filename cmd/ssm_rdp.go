@@ -52,9 +52,9 @@ func init() {
 
 	ssmRDPCmd.MarkFlagsRequiredTogether("get-password", "key-pair-file") //nolint:errcheck
 
-	viper.BindPFlag("rdp-port", ssmRDPCmd.Flags().Lookup("rdp-port"))             //nolint:errcheck
-	viper.BindPFlag("rdp-local-port", ssmRDPCmd.Flags().Lookup("local-port"))     //nolint:errcheck
-	viper.BindPFlag("rdp-get-password", ssmRDPCmd.Flags().Lookup("get-password")) //nolint:errcheck
+	viper.BindPFlag("rdp-port", ssmRDPCmd.Flags().Lookup("rdp-port"))               //nolint:errcheck
+	viper.BindPFlag("rdp-local-port", ssmRDPCmd.Flags().Lookup("local-port"))       //nolint:errcheck
+	viper.BindPFlag("rdp-get-password", ssmRDPCmd.Flags().Lookup("get-password"))   //nolint:errcheck
 	viper.BindPFlag("rdp-key-pair-file", ssmRDPCmd.Flags().Lookup("key-pair-file")) //nolint:errcheck
-	viper.BindPFlag("rdp-username", ssmRDPCmd.Flags().Lookup("username"))         //nolint:errcheck
+	viper.BindPFlag("rdp-username", ssmRDPCmd.Flags().Lookup("username"))           //nolint:errcheck
 }

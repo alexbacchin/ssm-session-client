@@ -18,10 +18,10 @@ const (
 	ResizeSleepInterval = time.Millisecond * 500
 
 	// Windows console mode flags
-	ENABLE_ECHO_INPUT              = 0x0004
-	ENABLE_LINE_INPUT              = 0x0002
-	ENABLE_PROCESSED_INPUT         = 0x0001
-	ENABLE_VIRTUAL_TERMINAL_INPUT  = 0x0200
+	ENABLE_ECHO_INPUT                  = 0x0004
+	ENABLE_LINE_INPUT                  = 0x0002
+	ENABLE_PROCESSED_INPUT             = 0x0001
+	ENABLE_VIRTUAL_TERMINAL_INPUT      = 0x0200
 	ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
 )
 

@@ -26,8 +26,8 @@ type PortForwardingInput struct {
 	Target     string
 	RemotePort int
 	LocalPort  int
-	Host       string          // optional
-	ReadyCh    chan struct{}    // optional; closed when the TCP listener is ready
+	Host       string        // optional
+	ReadyCh    chan struct{} // optional; closed when the TCP listener is ready
 }
 
 // PortForwardingSession starts a port forwarding session using the PortForwardingInput parameters to
