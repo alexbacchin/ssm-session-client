@@ -737,13 +737,20 @@ ssm-session-client port-forwarding  devbox:443 8443</code></pre>
       <!-- Reconnection -->
       <h2 id="config-reconnect">Automatic Reconnection</h2>
       <p>
-        <code>ssm-session-client</code> automatically reconnects when a WebSocket connection
-        drops. Configure it with:
+        For <strong>multiplexed port forwarding</strong> (SSM agent ≥ 3.0.196.0),
+        <code>ssm-session-client</code> automatically reopens the SSM session when the
+        underlying WebSocket drops — for example, due to a proxy idle-timeout or a
+        transient network interruption. The local TCP listener stays open throughout, so
+        connected clients can reconnect without restarting the tool.
       </p>
       <ul>
         <li><code>--enable-reconnect</code> — enable/disable (default: <code>true</code>)</li>
         <li><code>--max-reconnects</code> — maximum attempts before giving up (default: <code>5</code>, set <code>0</code> for unlimited)</li>
       </ul>
+      <div class="callout callout-info">
+        Automatic reconnection applies to multiplexed port forwarding only. Shell and SSH
+        sessions are not reconnected automatically.
+      </div>
 
       <!-- Data Channel Encryption -->
       <h2 id="config-encryption">Data Channel Encryption</h2>
@@ -1011,31 +1018,27 @@ ssh ec2-user@i-0bdb4f892de4bb54c</code></pre>
         Securely tunnel TCP traffic to a port on a private instance without SSH,
         open firewall rules, or a bastion host.
       </p>
-<pre><code class="language-bash"># Forward local port 8888 → instance port 443
-ssm-session-client port-forwarding i-0bdb4f892de4bb54c:443 8888
+<pre><code class="language-bash"># Forward local port 2222 → instance port 22
+ssm-session-client port-forwarding i-0bdb4f892de4bb54c --remote-port 22 --local-port 2222
 
 # Auto-assign local port (prints the assigned port)
-ssm-session-client port-forwarding i-0bdb4f892de4bb54c:443
+ssm-session-client port-forwarding i-0bdb4f892de4bb54c --remote-port 443
 
-# Forward to a different host (via the instance as gateway)
-ssm-session-client port-forwarding i-0bdb4f892de4bb54c:internal-db.local:5432 5432
+# Forward to a different host reachable from the instance (e.g. a private RDS endpoint)
+ssm-session-client port-forwarding i-0bdb4f892de4bb54c --remote-port 5432 --host db.internal --local-port 5432
 
 # Using an alias
-ssm-session-client port-forwarding devbox:443 8443</code></pre>
+ssm-session-client port-forwarding devbox --remote-port 443 --local-port 8443</code></pre>
 
-      <h3>Target Syntax</h3>
-      <p>
-        The first argument specifies the target and remote port in the format:
-        <code><strong>target</strong>[:<strong>remoteHost</strong>]:<strong>remotePort</strong></code>
-      </p>
+      <h3>Flags</h3>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Component</th><th>Description</th><th>Example</th></tr></thead>
+          <thead><tr><th>Flag</th><th>Description</th><th>Example</th></tr></thead>
           <tbody>
-            <tr><td><code>target</code></td><td>Instance ID, alias, tag, IP, or DNS name (resolved like other commands)</td><td><code>i-0123456789abcdef0</code>, <code>devbox</code>, <code>10.0.1.5</code></td></tr>
-            <tr><td><code>remoteHost</code> (optional)</td><td>Hostname or IP on the instance to forward to (if omitted, defaults to the instance itself)</td><td><code>internal-db.local</code>, <code>127.0.0.1</code></td></tr>
-            <tr><td><code>remotePort</code></td><td>Port on the instance (or remoteHost) to forward to</td><td><code>443</code>, <code>5432</code></td></tr>
-            <tr><td><code>localPort</code> (second arg)</td><td>Local listening port (omit or set to 0 for auto-assign)</td><td><code>8888</code></td></tr>
+            <tr><td><code>&lt;target&gt;</code></td><td>Instance ID, alias, tag, IP, or DNS name (resolved like other commands)</td><td><code>i-0123456789abcdef0</code>, <code>devbox</code>, <code>10.0.1.5</code></td></tr>
+            <tr><td><code>--remote-port</code></td><td>Port on the instance (or <code>--host</code>) to forward to (required)</td><td><code>--remote-port 5432</code></td></tr>
+            <tr><td><code>--host</code></td><td>Optional hostname or IP reachable from the instance to forward to instead of the instance itself</td><td><code>--host db.internal</code></td></tr>
+            <tr><td><code>--local-port</code></td><td>Local listening port (omit for auto-assign)</td><td><code>--local-port 8888</code></td></tr>
           </tbody>
         </table>
       </div>
@@ -1046,11 +1049,18 @@ ssm-session-client port-forwarding devbox:443 8443</code></pre>
         allowing multiple concurrent TCP connections over a single SSM session. Older
         agents fall back to single-connection mode automatically.
       </div>
+      <div class="callout callout-tip">
+        <strong>Automatic reconnection:</strong> If the WebSocket drops (e.g. proxy
+        idle-timeout), the session is re-established automatically and the local port
+        keeps listening. Use <code>--enable-reconnect=false</code> to disable, or
+        <code>--max-reconnects N</code> to limit attempts. See
+        <a href="#config-reconnect">Automatic Reconnection</a> for details.
+      </div>
 
       <h3>Common use cases</h3>
       <ul>
-        <li><strong>Tunnel to a database on the instance:</strong> <code>ssm-session-client port-forwarding i-abc123:5432 5432</code> → connect to <code>localhost:5432</code></li>
-        <li><strong>Tunnel through an instance to another service:</strong> <code>ssm-session-client port-forwarding bastion:internal-api.local:8080 8080</code> → forwards to <code>internal-api.local:8080</code> as seen from the bastion instance</li>
+        <li><strong>Tunnel to a database on the instance:</strong> <code>ssm-session-client port-forwarding i-abc123 --remote-port 5432 --local-port 5432</code> → connect to <code>localhost:5432</code></li>
+        <li><strong>Tunnel through an instance to another service:</strong> <code>ssm-session-client port-forwarding bastion --remote-port 8080 --host internal-api.local --local-port 8080</code> → forwards to <code>internal-api.local:8080</code> as seen from the bastion instance</li>
         <li><strong>Multiple tunnels in parallel:</strong> Open multiple port-forwarding sessions in separate terminals</li>
       </ul>
 
