@@ -12,6 +12,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
 // TestPortForwardingToSSHPort forwards a local port to port 22 on the test instance and verifies
@@ -85,6 +90,154 @@ func TestPortForwardingMultipleConnections(t *testing.T) {
 	// Give the port-forwarder process time to process the smux stream closures
 	// and begin session termination before the leak check runs.
 	time.Sleep(2 * time.Second)
+}
+
+// TestPortForwardingReconnect verifies that a mux port-forwarding session recovers after the
+// underlying SSM session is terminated externally (simulating a proxy idle-timeout or network drop).
+// The test:
+//  1. Starts a port-forwarder with --enable-reconnect=true
+//  2. Confirms the first TCP connection succeeds (SSH banner received)
+//  3. Terminates the active SSM session via the API (simulates WebSocket close)
+//  4. Waits for the port-forwarder to re-open the port (reconnect + new handshake)
+//  5. Confirms a second TCP connection succeeds
+func TestPortForwardingReconnect(t *testing.T) {
+	i := infra(t)
+	waitForSSMReady(t, i.InstanceID)
+	terminateAllSessions(t, i.InstanceID)
+
+	localPort := freePort(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stderrBuf := &strings.Builder{}
+	args := []string{
+		"--config", "/dev/null",
+		"--log-level", "debug",
+		"--aws-region", i.AWSRegion,
+		"--enable-reconnect=true",
+		"--max-reconnects", "3",
+		"port-forwarding", i.InstanceID,
+		"--remote-port", "22",
+		"--local-port", strconv.Itoa(localPort),
+	}
+	cmd := exec.CommandContext(ctx, binaryPath, args...) //nolint:gosec
+	cmd.Stderr = stderrBuf
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start port-forwarding: %v", err)
+	}
+
+	exited := make(chan struct{})
+	go func() {
+		cmd.Wait() //nolint:errcheck
+		close(exited)
+	}()
+
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			cmd.Process.Signal(os.Interrupt) //nolint:errcheck
+		}
+		select {
+		case <-exited:
+		case <-time.After(5 * time.Second):
+			cancel()
+			<-exited
+		}
+		t.Logf("port-forwarding stderr:\n%s", stderrBuf.String())
+	})
+
+	// Wait for the port to open (initial connection).
+	if !portReady(localPort, 40*time.Second, exited) {
+		t.Fatalf("port %d not ready after initial connect (stderr: %s)", localPort, stderrBuf.String())
+	}
+
+	// Verify first connection works.
+	if err := sshBannerCheck(t, localPort); err != nil {
+		t.Fatalf("first connection: %v", err)
+	}
+	t.Log("first connection succeeded")
+
+	// Find the active SSM session and terminate it externally.
+	sessionID := findActiveSession(t, i.InstanceID)
+	if sessionID == "" {
+		t.Fatal("no active SSM session found to terminate")
+	}
+	t.Logf("terminating SSM session %s to trigger reconnect", sessionID)
+	terminateSessionByID(t, sessionID)
+
+	// Port-forwarder should detect the WebSocket close and reconnect.
+	// Wait up to 60s for the port to become available again.
+	if !portReady(localPort, 60*time.Second, exited) {
+		t.Fatalf("port %d not ready after reconnect (stderr: %s)", localPort, stderrBuf.String())
+	}
+
+	// Verify second connection works after reconnect.
+	if err := sshBannerCheck(t, localPort); err != nil {
+		t.Fatalf("second connection after reconnect: %v", err)
+	}
+	t.Log("reconnect verified: second connection succeeded")
+}
+
+// sshBannerCheck dials localhost:port and reads the SSH banner.
+func sshBannerCheck(t *testing.T, port int) error {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", port), 5*time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	buf := make([]byte, 256)
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, _ := conn.Read(buf)
+	if n == 0 {
+		return fmt.Errorf("no data received (SSH banner missing)")
+	}
+	t.Logf("SSH banner: %s", strings.TrimSpace(string(buf[:n])))
+	return nil
+}
+
+// findActiveSession returns the first active SSM session ID for the given instance, or "".
+func findActiveSession(t *testing.T, instanceID string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(globalInfraOutputs.AWSRegion))
+	if err != nil {
+		t.Logf("findActiveSession: load config: %v", err)
+		return ""
+	}
+	client := ssm.NewFromConfig(cfg)
+	out, err := client.DescribeSessions(ctx, &ssm.DescribeSessionsInput{
+		State: ssmtypes.SessionStateActive,
+		Filters: []ssmtypes.SessionFilter{
+			{Key: ssmtypes.SessionFilterKeyTargetId, Value: aws.String(instanceID)},
+		},
+	})
+	if err != nil || len(out.Sessions) == 0 {
+		return ""
+	}
+	if out.Sessions[0].SessionId == nil {
+		return ""
+	}
+	return *out.Sessions[0].SessionId
+}
+
+// terminateSessionByID calls ssm:TerminateSession for the given session ID.
+func terminateSessionByID(t *testing.T, sessionID string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(globalInfraOutputs.AWSRegion))
+	if err != nil {
+		t.Fatalf("terminateSessionByID: load config: %v", err)
+	}
+	client := ssm.NewFromConfig(cfg)
+	if _, err := client.TerminateSession(ctx, &ssm.TerminateSessionInput{SessionId: aws.String(sessionID)}); err != nil {
+		t.Fatalf("terminateSessionByID %s: %v", sessionID, err)
+	}
 }
 
 // TestPortForwardingToRDPPort forwards a local port to port 3389 on the Windows test instance

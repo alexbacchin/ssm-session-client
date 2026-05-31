@@ -24,11 +24,13 @@ import (
 // RemotePort is the port on the EC2 instance to connect to.
 // LocalPort is the port on the local host to listen to.  If not provided, a random port will be used.
 type PortForwardingInput struct {
-	Target     string
-	RemotePort int
-	LocalPort  int
-	Host       string        // optional
-	ReadyCh    chan struct{} // optional; closed when the TCP listener is ready
+	Target          string
+	RemotePort      int
+	LocalPort       int
+	Host            string        // optional
+	ReadyCh         chan struct{}  // optional; closed when the TCP listener is ready
+	EnableReconnect bool          // reconnect on WebSocket close (mux mode only)
+	MaxReconnects   int           // 0 = unlimited; ignored when EnableReconnect is false
 }
 
 // PortForwardingSession starts a port forwarding session using the PortForwardingInput parameters to
@@ -113,6 +115,7 @@ func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataCh
 	zap.S().Infof("listening on %s", lsnr.Addr())
 
 	current := c
+	reconnectCount := 0
 	for {
 		bridgeErr := startMuxPortForwarding(ctx, current, lsnr, current.AgentVersion())
 
@@ -124,14 +127,22 @@ func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataCh
 		default:
 		}
 
-		// Bridge died but context is still live — attempt reconnect.
 		_ = current.TerminateSession()
 		_ = current.Close()
 
+		if !opts.EnableReconnect {
+			return bridgeErr
+		}
+
+		if opts.MaxReconnects > 0 && reconnectCount >= opts.MaxReconnects {
+			return fmt.Errorf("max reconnects (%d) reached: %w", opts.MaxReconnects, bridgeErr)
+		}
+		reconnectCount++
+
 		if bridgeErr != nil {
-			zap.S().Warnf("mux bridge ended (%v), reconnecting…", bridgeErr)
+			zap.S().Warnf("mux bridge ended (%v), reconnecting (attempt %d)…", bridgeErr, reconnectCount)
 		} else {
-			zap.S().Info("mux bridge ended, reconnecting…")
+			zap.S().Infof("mux bridge ended, reconnecting (attempt %d)…", reconnectCount)
 		}
 
 		next, rerr := openDataChannel(cfg, opts)
@@ -144,7 +155,7 @@ func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataCh
 			return fmt.Errorf("reconnect handshake failed: %w", herr)
 		}
 
-		zap.S().Infof("reconnected (agent version: %s)", next.AgentVersion())
+		zap.S().Infof("reconnected (attempt %d, agent version: %s)", reconnectCount, next.AgentVersion())
 		current = next
 	}
 }
