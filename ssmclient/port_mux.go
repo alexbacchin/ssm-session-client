@@ -2,6 +2,7 @@ package ssmclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -36,6 +37,12 @@ func startMuxPortForwarding(ctx context.Context, c *datachannel.SsmDataChannel, 
 		return fmt.Errorf("create smux session: %w", err)
 	}
 
+	// acceptCtx is cancelled when the bridge dies so the accept goroutine stops
+	// dispatching new connections to this (now-dead) muxSession before the caller
+	// starts the next reconnect iteration with a fresh session.
+	acceptCtx, cancelAccept := context.WithCancel(ctx)
+	defer cancelAccept()
+
 	// Start bridge goroutines between data channel and smux pipe
 	errCh := make(chan error, 2)
 
@@ -60,10 +67,12 @@ func startMuxPortForwarding(ctx context.Context, c *datachannel.SsmDataChannel, 
 	}()
 
 	// Accept loop: handle incoming TCP connections
+	acceptDone := make(chan struct{})
 	go func() {
+		defer close(acceptDone)
 		for {
 			select {
-			case <-ctx.Done():
+			case <-acceptCtx.Done():
 				return
 			default:
 			}
@@ -71,17 +80,19 @@ func startMuxPortForwarding(ctx context.Context, c *datachannel.SsmDataChannel, 
 			conn, err := listener.Accept()
 			if err != nil {
 				select {
-				case <-ctx.Done():
-					// Expected error during shutdown
+				case <-acceptCtx.Done():
 					return
 				default:
+					if errors.Is(err, net.ErrClosed) {
+						return
+					}
 					zap.S().Warnf("accept error: %v", err)
 					continue
 				}
 			}
 
 			// Handle each connection in a separate goroutine
-			go handleMuxConnection(ctx, muxSession, conn)
+			go handleMuxConnection(acceptCtx, muxSession, conn)
 		}
 	}()
 
@@ -94,6 +105,15 @@ func startMuxPortForwarding(ctx context.Context, c *datachannel.SsmDataChannel, 
 			zap.S().Warnf("bridge error: %v", err)
 		}
 		err = nil
+	}
+
+	// Stop the accept goroutine before tearing down the session so it cannot
+	// dispatch new connections to the dead muxSession during reconnect.
+	cancelAccept()
+	select {
+	case <-acceptDone:
+	case <-time.After(2 * time.Second):
+		zap.S().Debug("timed out waiting for accept goroutine to exit")
 	}
 
 	// Close the pipe to unblock bridge goroutines. The WriteTo goroutine

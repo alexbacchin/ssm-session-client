@@ -82,6 +82,22 @@ acceptance-run-local: ## Run acceptance tests locally (requires infra to be prov
 acceptance-run-ci: ## Run acceptance tests in CI (identical to local; relies on OIDC credentials).
 	$(MAKE) acceptance-run-local
 
+acceptance-run-sso: ## Run SSO acceptance tests (requires SSC_SSO_TEST_PROFILE env var and cached SSO token).
+	@if [ -z "$(SSO_PROFILE)" ]; then \
+		echo "ERROR: SSO_PROFILE is required.  Usage: make acceptance-run-sso SSO_PROFILE=my-sso-profile" >&2; \
+		exit 1; \
+	fi
+	cd $(TEST_DIR)/.. && \
+		SSC_SSO_TEST_PROFILE=$(SSO_PROFILE) \
+		go test ./test/acceptance/... \
+			-tags "acceptance sso" \
+			-v \
+			-timeout 20m \
+			-count=1 \
+			-race \
+			-run TestSSOLogin \
+			$(ACCEPTANCE_ARGS)
+
 acceptance-sso-interactive: ## Run interactive SSO login test (requires a human to approve in a browser).
 	@if [ -z "$(SSO_PROFILE)" ]; then \
 		echo "ERROR: SSO_PROFILE is required.  Usage: make acceptance-sso-interactive SSO_PROFILE=my-sso-profile" >&2; \
@@ -92,7 +108,7 @@ acceptance-sso-interactive: ## Run interactive SSO login test (requires a human 
 		SSC_SSO_TEST_INTERACTIVE=1 \
 		SSC_SSO_TEST_TIMEOUT=$(SSO_TEST_TIMEOUT) \
 		go test ./test/acceptance/... \
-			-tags acceptance \
+			-tags "acceptance sso" \
 			-v \
 			-timeout $$(( $(SSO_TEST_TIMEOUT) + 5 ))m \
 			-count=1 \

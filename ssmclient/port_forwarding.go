@@ -2,6 +2,7 @@ package ssmclient
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -23,11 +24,13 @@ import (
 // RemotePort is the port on the EC2 instance to connect to.
 // LocalPort is the port on the local host to listen to.  If not provided, a random port will be used.
 type PortForwardingInput struct {
-	Target     string
-	RemotePort int
-	LocalPort  int
-	Host       string        // optional
-	ReadyCh    chan struct{} // optional; closed when the TCP listener is ready
+	Target          string
+	RemotePort      int
+	LocalPort       int
+	Host            string        // optional
+	ReadyCh         chan struct{}  // optional; closed when the TCP listener is ready
+	EnableReconnect bool          // reconnect on WebSocket close (mux mode only)
+	MaxReconnects   int           // 0 = unlimited; ignored when EnableReconnect is false
 }
 
 // PortForwardingSession starts a port forwarding session using the PortForwardingInput parameters to
@@ -40,13 +43,8 @@ func PortForwardingSessionWithContext(ctx context.Context, cfg aws.Config, opts 
 	if err != nil {
 		return err
 	}
-	defer func() {
-		// Both the basic and muxing plugins support TerminateSession on the agent side.
-		_ = c.TerminateSession()
-		_ = c.Close()
-	}()
 
-	return startPortForwardingSession(ctx, c, opts)
+	return startPortForwardingSession(ctx, cfg, c, opts)
 }
 
 // PortForwardingSession starts a port forwarding session using the PortForwardingInput parameters to
@@ -57,11 +55,6 @@ func PortForwardingSession(cfg aws.Config, opts *PortForwardingInput) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		// Both the basic and muxing plugins support TerminateSession on the agent side.
-		_ = c.TerminateSession()
-		_ = c.Close()
-	}()
 
 	// use a signal handler vs. defer since defer operates after an escape from the outer loop
 	// and we can't trust the data channel connection state at that point.  Intercepting signals
@@ -69,13 +62,17 @@ func PortForwardingSession(cfg aws.Config, opts *PortForwardingInput) error {
 	// possibility that the data channel is still valid
 	installSignalHandler(c)
 
-	return startPortForwardingSession(context.Background(), c, opts)
+	return startPortForwardingSession(context.Background(), cfg, c, opts)
 }
 
 // startPortForwardingSession is shared by PortForwardingSession and PortForwardingSessionWithContext
 // and routes to either multiplexed or basic port forwarding based on agent version.
-func startPortForwardingSession(ctx context.Context, c *datachannel.SsmDataChannel, opts *PortForwardingInput) error {
+// For mux mode, ownership of c transfers to startMuxPortForwardingSession (which closes it).
+// For basic mode, the caller retains no deferred close, so we close c here on exit.
+func startPortForwardingSession(ctx context.Context, cfg aws.Config, c *datachannel.SsmDataChannel, opts *PortForwardingInput) error {
 	if err := c.WaitForHandshakeComplete(ctx); err != nil {
+		_ = c.TerminateSession()
+		_ = c.Close()
 		return err
 	}
 
@@ -84,16 +81,22 @@ func startPortForwardingSession(ctx context.Context, c *datachannel.SsmDataChann
 	// Agent version 3.0.196.0+ supports multiplexed port forwarding
 	if agentVersionGte(agentVersion, "3.0.196.0") {
 		zap.S().Infof("using multiplexed port forwarding (agent version: %s)", agentVersion)
-		return startMuxPortForwardingSession(ctx, c, opts)
+		// Ownership of c passes to startMuxPortForwardingSession; it closes c on every iteration.
+		return startMuxPortForwardingSession(ctx, c, opts, cfg)
 	}
 
 	zap.S().Infof("using basic port forwarding (agent version: %s)", agentVersion)
+	defer func() {
+		_ = c.TerminateSession()
+		_ = c.Close()
+	}()
 	return startBasicPortForwardingSession(ctx, c, opts)
 }
 
 // startMuxPortForwardingSession handles multiplexed port forwarding for modern SSM agents.
-func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataChannel, opts *PortForwardingInput) error {
-	// Create listener without connection limit for multiplexed mode
+// It keeps the TCP listener open across WebSocket reconnects so clients can transparently
+// reconnect after a proxy idle-timeout or transient network interruption.
+func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataChannel, opts *PortForwardingInput, cfg aws.Config) error {
 	lsnr, err := createListenerUnlimited(opts.LocalPort)
 	if err != nil {
 		return err
@@ -111,7 +114,50 @@ func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataCh
 
 	zap.S().Infof("listening on %s", lsnr.Addr())
 
-	return startMuxPortForwarding(ctx, c, lsnr, c.AgentVersion())
+	current := c
+	reconnectCount := 0
+	for {
+		bridgeErr := startMuxPortForwarding(ctx, current, lsnr, current.AgentVersion())
+
+		select {
+		case <-ctx.Done():
+			_ = current.TerminateSession()
+			_ = current.Close()
+			return nil
+		default:
+		}
+
+		_ = current.TerminateSession()
+		_ = current.Close()
+
+		if !opts.EnableReconnect {
+			return bridgeErr
+		}
+
+		if opts.MaxReconnects > 0 && reconnectCount >= opts.MaxReconnects {
+			return fmt.Errorf("max reconnects (%d) reached: %w", opts.MaxReconnects, bridgeErr)
+		}
+		reconnectCount++
+
+		if bridgeErr != nil {
+			zap.S().Warnf("mux bridge ended (%v), reconnecting (attempt %d)…", bridgeErr, reconnectCount)
+		} else {
+			zap.S().Infof("mux bridge ended, reconnecting (attempt %d)…", reconnectCount)
+		}
+
+		next, rerr := openDataChannel(cfg, opts)
+		if rerr != nil {
+			return fmt.Errorf("reconnect failed: %w", rerr)
+		}
+
+		if herr := next.WaitForHandshakeComplete(ctx); herr != nil {
+			_ = next.Close()
+			return fmt.Errorf("reconnect handshake failed: %w", herr)
+		}
+
+		zap.S().Infof("reconnected (attempt %d, agent version: %s)", reconnectCount, next.AgentVersion())
+		current = next
+	}
 }
 
 // startBasicPortForwardingSession handles legacy single-connection port forwarding.
