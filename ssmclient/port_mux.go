@@ -2,6 +2,7 @@ package ssmclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -72,9 +73,11 @@ func startMuxPortForwarding(ctx context.Context, c *datachannel.SsmDataChannel, 
 			if err != nil {
 				select {
 				case <-ctx.Done():
-					// Expected error during shutdown
 					return
 				default:
+					if errors.Is(err, net.ErrClosed) {
+						return
+					}
 					zap.S().Warnf("accept error: %v", err)
 					continue
 				}
