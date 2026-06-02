@@ -15,19 +15,17 @@ import (
 
 // startMuxPortForwarding handles multiplexed port forwarding using the smux library.
 // This allows multiple concurrent TCP connections over a single SSM session.
-// Agent version must be >= 3.0.196.0 for multiplexing support.
-func startMuxPortForwarding(ctx context.Context, c *datachannel.SsmDataChannel, listener net.Listener, agentVersion string) error {
+func startMuxPortForwarding(ctx context.Context, c *datachannel.SsmDataChannel, listener net.Listener) error {
 	// Create a pipe to bridge between the data channel and smux
 	localConn, pipeConn := net.Pipe()
 
-	// Configure smux session
+	// Configure smux session.
+	// Keep smux keepalive enabled regardless of agent version: it sends a small
+	// NOP frame every 10s in both directions, which prevents NLB/VPC-endpoint
+	// idle-timeout from dropping the WebSocket when there is no application data.
+	// Agent-side keepalives (output_stream_data acks) are server-to-client only
+	// and are not sufficient to satisfy bidirectional idle-timeout policies.
 	smuxConfig := smux.DefaultConfig()
-
-	// Disable KeepAlive for agent versions >= 3.1.1511.0
-	// Newer agents handle keepalive at the WebSocket layer
-	if agentVersionGte(agentVersion, "3.1.1511.0") {
-		smuxConfig.KeepAliveDisabled = true
-	}
 
 	// Create smux client session
 	muxSession, err := smux.Client(localConn, smuxConfig)

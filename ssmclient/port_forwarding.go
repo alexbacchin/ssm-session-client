@@ -117,7 +117,7 @@ func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataCh
 	current := c
 	reconnectCount := 0
 	for {
-		bridgeErr := startMuxPortForwarding(ctx, current, lsnr, current.AgentVersion())
+		bridgeErr := startMuxPortForwarding(ctx, current, lsnr)
 
 		select {
 		case <-ctx.Done():
