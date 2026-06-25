@@ -136,8 +136,20 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Find the previous tag to generate changelog from.
-          PREV_TAG=$(git tag --sort=-v:refname | grep '^v' | sed -n '2p')
+          # For full releases, find the previous full release tag (skip pre-release tags).
+          # For pre-releases, use the previous tag of any kind.
+          IS_PRERELEASE=false
+          if echo "${{ github.ref_name }}" | grep -qE '\-(alpha|beta|rc)'; then
+            IS_PRERELEASE=true
+          fi
+
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            PREV_TAG=$(git tag --sort=-v:refname | grep '^v' | sed -n '2p')
+          else
+            # Skip pre-release tags (alpha/beta/rc) to find the last full release.
+            PREV_TAG=$(git tag --sort=-v:refname | grep '^v' | grep -vE '\-(alpha|beta|rc)' | sed -n '2p')
+          fi
+
           if [ -z "$PREV_TAG" ]; then
             echo "body=Initial release" >> "$GITHUB_OUTPUT"
           else
@@ -151,6 +163,30 @@ jobs:
               echo "CHANGELOG_EOF"
             } >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Delete pre-releases for this version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Only run when publishing a full release (no pre-release suffix).
+          if echo "${{ github.ref_name }}" | grep -qE '\-(alpha|beta|rc)'; then
+            echo "Pre-release tag — skipping cleanup."
+            exit 0
+          fi
+          # Strip patch: v1.2.3 → v1.2 to match any pre-release of the same minor version.
+          VERSION_PREFIX=$(echo "${{ github.ref_name }}" | grep -oE '^v[0-9]+\.[0-9]+\.[0-9]+')
+          if [ -z "$VERSION_PREFIX" ]; then
+            echo "Could not parse version prefix — skipping cleanup."
+            exit 0
+          fi
+          gh release list --limit 50 --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease) | .tagName' | \
+          while read -r tag; do
+            if echo "$tag" | grep -q "^${VERSION_PREFIX}-"; then
+              echo "Deleting pre-release: $tag"
+              gh release delete "$tag" --yes --cleanup-tag
+            fi
+          done
 
       - name: Create release
         env:
