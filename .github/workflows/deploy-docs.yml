@@ -86,8 +86,22 @@ jobs:
             fi
           fi
 
-          # Build versions.json with all versions
-          ALL_TAGS_JSON=$(echo "$ALL_TAGS" | jq -R . | jq -s .)
+          # Build versions.json — for a full release, strip pre-release tags of the same version.
+          IS_PRERELEASE=false
+          if echo "$TAG" | grep -qE '\-(alpha|beta|rc)'; then
+            IS_PRERELEASE=true
+          fi
+
+          if [ "$IS_PRERELEASE" = "false" ]; then
+            # Strip patch to get the version prefix (e.g. v1.2.3 → v1.2.3).
+            # Remove any pre-release tags that share the same base version (v1.2.3-alpha, v1.2.3-rc1, etc.)
+            VERSION_BASE=$(echo "$TAG" | grep -oE '^v[0-9]+\.[0-9]+\.[0-9]+')
+            FILTERED_TAGS=$(echo "$ALL_TAGS" | grep -v -E "^${VERSION_BASE}-(alpha|beta|rc)")
+          else
+            FILTERED_TAGS="$ALL_TAGS"
+          fi
+
+          ALL_TAGS_JSON=$(echo "$FILTERED_TAGS" | jq -R . | jq -s .)
 
           echo "Creating versions index"
           jq -n \

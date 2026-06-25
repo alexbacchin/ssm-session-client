@@ -310,20 +310,17 @@ func openDataChannel(cfg aws.Config, opts *PortForwardingInput) (*datachannel.Ss
 func messageChannel(c datachannel.DataChannel, errCh chan error) chan []byte {
 	inCh := make(chan []byte)
 
-	buf := make([]byte, 4096)
-	var payload []byte
-
 	go func() {
 		defer close(inCh)
 
 		for {
-			nr, err := c.Read(buf)
+			frame, err := c.ReadFrame()
 			if err != nil {
 				errCh <- err
 				return
 			}
 
-			payload, err = c.HandleMsg(buf[:nr])
+			payload, err := c.HandleMsg(frame)
 			if err != nil {
 				errCh <- err
 				return

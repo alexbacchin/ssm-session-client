@@ -28,6 +28,7 @@ import (
 type DataChannel interface {
 	Open(aws.Config, *ssm.StartSessionInput, *SSMMessagesResover) error
 	HandleMsg(data []byte) ([]byte, error)
+	ReadFrame() ([]byte, error)
 	SetTerminalSize(rows, cols uint32) error
 	TerminateSession() error
 	DisconnectPort() error
@@ -40,17 +41,17 @@ type DataChannel interface {
 // SsmDataChannel represents the data channel of the websocket connection used to communicate with the AWS
 // SSM service.  A new(SsmDataChannel) is ready for use, and should immediately call the Open() method.
 type SsmDataChannel struct {
-	seqNum      int64
-	inSeqNum    int64
-	mu          sync.Mutex
-	ws          *websocket.Conn
-	synSent     bool
-	handshakeCh chan bool
-	pausePub    bool
-	outMsgBuf   MessageBuffer
-	inMsgBuf    MessageBuffer
-	lastRows    uint32
-	lastCols    uint32
+	seqNum          int64
+	inSeqNum        int64
+	mu              sync.Mutex
+	ws              *websocket.Conn
+	synSent         bool
+	handshakeCh     chan bool
+	pausePub        bool
+	outMsgBuf       MessageBuffer
+	inMsgBuf        MessageBuffer
+	lastRows        uint32
+	lastCols        uint32
 
 	// KMS encryption state
 	encryptionEnabled bool
@@ -121,8 +122,6 @@ func (c *SsmDataChannel) AgentVersion() string {
 // WaitForHandshakeComplete blocks further processing until the required SSM handshake sequence used for
 // port-based clients (including ssh) completes.
 func (c *SsmDataChannel) WaitForHandshakeComplete(ctx context.Context) error {
-	buf := make([]byte, 4096)
-
 	for {
 		select {
 		case <-c.handshakeCh:
@@ -138,82 +137,91 @@ func (c *SsmDataChannel) WaitForHandshakeComplete(ctx context.Context) error {
 			c.handshakeCh = nil
 			return context.Canceled
 		default:
-			n, err := c.Read(buf)
+			frame, err := c.ReadFrame()
 			if err != nil {
 				return err
 			}
 
 			m := new(AgentMessage)
-			if uerr := m.UnmarshalBinary(buf[:n]); uerr == nil {
+			if uerr := m.UnmarshalBinary(frame); uerr == nil {
 				zap.S().Debugf("handshake recv: type=%s flags=%d seq=%d payloadType=%d len=%d",
 					m.MessageType, m.Flags, m.SequenceNumber, m.PayloadType, len(m.Payload))
 			}
 
-			if _, err = c.HandleMsg(buf[:n]); err != nil {
+			if _, err = c.HandleMsg(frame); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-// Read will get a single message from the websocket connection. The unprocessed message is copied to the
-// requested []byte (which should be sized to handle at least 1536 bytes).
-func (c *SsmDataChannel) Read(data []byte) (int, error) {
+// ReadFrame reads one complete WebSocket frame and returns it as a slice. Each frame contains
+// exactly one AgentMessage. This is the preferred method for callers that need to parse the
+// full message, as it handles frames of any size without truncation.
+func (c *SsmDataChannel) ReadFrame() ([]byte, error) {
 	_, msg, err := c.ws.ReadMessage()
-	n := copy(data[:len(msg)], msg)
-
 	if err != nil {
-		// gorilla code states this is uber-fatal, and we just need to bail out
 		if websocket.IsCloseError(err, 1000, 1001, 1006) {
 			err = io.EOF
 		}
-		return n, err
+		return nil, err
 	}
 
-	if n < agentMsgHeaderLen {
-		return n, errors.New("invalid message received, too short")
+	if len(msg) < agentMsgHeaderLen {
+		return nil, errors.New("invalid message received, too short")
 	}
 
+	return msg, nil
+}
+
+// Read will get a single message from the websocket connection. The unprocessed message is copied to the
+// requested []byte (which should be sized to handle at least 1536 bytes).
+// If the frame is larger than data, only the first len(data) bytes are returned and the rest are discarded.
+// Use ReadFrame to receive frames of arbitrary size without truncation.
+func (c *SsmDataChannel) Read(data []byte) (int, error) {
+	msg, err := c.ReadFrame()
+	if err != nil {
+		return 0, err
+	}
+	n := copy(data, msg)
 	return n, nil
 }
 
 // WriteTo uses the data channel as an io.Copy read source, writing output to the provided writer.
 func (c *SsmDataChannel) WriteTo(w io.Writer) (n int64, err error) {
-	buf := make([]byte, 4096)
-	var nr, nw int
+	var nw int
 	var payload []byte
 
 	for {
-		nr, err = c.Read(buf)
+		var frame []byte
+		frame, err = c.ReadFrame()
 		if err != nil {
 			zap.S().Debugf("WriteTo read error: %v", err)
 			return n, err
 		}
 
-		if nr > 0 {
-			payload, err = c.HandleMsg(buf[:nr])
-			var isEOF bool
+		payload, err = c.HandleMsg(frame)
+		var isEOF bool
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				isEOF = true
+			} else {
+				zap.S().Infof("WriteTo HandleMsg error: %v", err)
+				return n, err
+			}
+		}
+
+		if len(payload) > 0 {
+			nw, err = w.Write(payload)
+			n += int64(nw)
 			if err != nil {
-				if errors.Is(err, io.EOF) {
-					isEOF = true
-				} else {
-					zap.S().Infof("WriteTo HandleMsg error: %v", err)
-					return n, err
-				}
+				zap.S().Infof("WriteTo write error: %v", err)
+				return n, err
 			}
+		}
 
-			if len(payload) > 0 {
-				nw, err = w.Write(payload)
-				n += int64(nw)
-				if err != nil {
-					zap.S().Infof("WriteTo write error: %v", err)
-					return n, err
-				}
-			}
-
-			if isEOF {
-				return n, nil
-			}
+		if isEOF {
+			return n, nil
 		}
 	}
 }
