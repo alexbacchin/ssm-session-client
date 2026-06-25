@@ -5,12 +5,12 @@ go 1.25.0
 require (
 	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.25
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.307.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.307.1
 	github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect v1.33.2
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.69.3
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.3
 	github.com/aws/session-manager-plugin v0.0.0-20260317185859-1fc63e3f5a01
-	github.com/aws/smithy-go v1.27.1
+	github.com/aws/smithy-go v1.27.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.10.2
