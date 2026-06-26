@@ -1059,21 +1059,28 @@ ssm-session-client port-forwarding devbox --remote-port 443 --local-port 8443</c
         <a href="#config-reconnect">Automatic Reconnection</a> for details.
       </div>
       <div class="callout callout-tip">
-        <strong>Bandwidth limit and large file transfers:</strong> AWS SSM agent enforces a
-        hard ~500 kbps (≈ 62 KB/s) bandwidth cap on all port-forwarding sessions, regardless
-        of your local network speed. When data is pushed faster than this cap, the agent's
-        internal receive buffer (4 MB) fills up in seconds and the session is terminated
-        mid-transfer — causing errors like <em>Connection reset by peer</em> or
-        <em>Broken pipe</em> during SCP/SFTP uploads.
+        <strong>Bandwidth limit and large file transfers:</strong> The SSM agent's
+        port-forwarding read loop sends data in fixed 1 KB frames with a 1 ms sleep between
+        each frame (see
+        <a href="https://github.com/aws/amazon-ssm-agent/blob/mainline/agent/session/plugins/port/port_basic.go" target="_blank" rel="noopener">port_basic.go</a>).
+        This creates a theoretical ceiling of ~1 MB/s, but the real effective throughput is
+        much lower: the SSM service can issue <em>pause</em> signals after each frame,
+        reducing throughput to roughly <code>1024 bytes / RTT</code>. Over typical
+        internet paths (50–100 ms RTT to the SSM Messages endpoint) this lands around
+        10–60 KB/s, and the agent's internal receive buffer (smux session: 4 MB) fills
+        within seconds if the client pushes data faster than the agent can forward it —
+        causing the session to be terminated mid-transfer with errors like
+        <em>Connection reset by peer</em> or <em>Broken pipe</em> during SCP/SFTP uploads.
         <br><br>
         <code>--port-forward-bps</code> throttles outbound data at the TCP stream level so
-        the agent's buffer never overflows. The default <code>56000</code> (≈ 56 KB/s) is
-        90% of the agent cap, leaving headroom for SSH/protocol overhead. For interactive
-        use (web browsing, SSH sessions, database queries) the throttle is transparent —
-        those workloads never sustain enough throughput to trigger the cap.
+        the agent's receive buffer never overflows. The default <code>56000</code> (≈ 56 KB/s)
+        is a conservative safe value for typical internet-connected sessions. For interactive
+        use (SSH, database queries, web browsing) the throttle is transparent — those
+        workloads never sustain enough throughput to trigger the problem.
         <br><br>
         Set <code>--port-forward-bps 0</code> to disable throttling entirely, for example
-        when using a custom SSM-compatible proxy that does not enforce the 500 kbps limit.
+        when using a custom SSM-compatible proxy or a PrivateLink endpoint with very low
+        RTT where higher throughput is achievable and reliable.
       </div>
 
       <h3>Common use cases</h3>
