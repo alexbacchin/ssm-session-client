@@ -110,6 +110,18 @@ func SSHDirectSession(cfg aws.Config, opts *SSHDirectInput) error {
 
 	zap.S().Info("SSH connection established")
 
+	// Send keepalive requests every 30 s so the SSH server does not idle-close
+	// the connection during long-running operations (e.g. large file transfers).
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for range t.C {
+			if _, _, err := client.SendRequest("keepalive@openssh.com", true, nil); err != nil {
+				return
+			}
+		}
+	}()
+
 	// Start SOCKS5 dynamic port forwarding if -D was specified.
 	if opts.DynamicForward != "" {
 		ln, err := startSOCKS5Proxy(client, opts.DynamicForward)

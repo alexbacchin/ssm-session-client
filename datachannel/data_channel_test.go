@@ -337,13 +337,17 @@ func TestHandleMsg_HandshakeComplete(t *testing.T) {
 func TestHandleMsg_DuplicateMessage(t *testing.T) {
 	c, cleanup := newTestWSChannel(t)
 	defer cleanup()
-	c.inSeqNum = 5 // already processed up to 5
+	// Simulate a data stream that has already delivered through seq 5.
+	c.dataBuf = make(map[int64]*AgentMessage)
+	c.dataSeqNum = 6
+	c.dataSeqInit = true
+	c.dataDelivered = true
 
 	msg := NewAgentMessage()
 	msg.MessageType = OutputStreamData
 	msg.Flags = Data
 	msg.PayloadType = Output
-	msg.SequenceNumber = 3 // already processed
+	msg.SequenceNumber = 3 // already delivered → retransmission
 	msg.Payload = []byte("duplicate")
 
 	data, err := msg.MarshalBinary()
