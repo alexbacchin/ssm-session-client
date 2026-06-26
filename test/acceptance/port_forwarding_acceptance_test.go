@@ -5,11 +5,9 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -297,7 +295,6 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int,
 		cancel    context.CancelFunc
 		exited    chan struct{}
 		stderrBuf strings.Builder
-		logFile   *os.File
 	)
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -310,15 +307,8 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int,
 		cancel = cancelFn
 		stderrBuf.Reset()
 
-		logPath := filepath.Join(os.TempDir(), fmt.Sprintf("ssm-portfwd-%d.log", time.Now().UnixNano()))
-		logFile, _ = os.Create(logPath)
-		t.Logf("port-forwarding debug log: %s", logPath)
-		var logWriter io.Writer = &stderrBuf
-		if logFile != nil {
-			logWriter = io.MultiWriter(&stderrBuf, logFile)
-		}
 		cmd = exec.CommandContext(ctx, binaryPath, args...) //nolint:gosec
-		cmd.Stderr = logWriter
+		cmd.Stderr = &stderrBuf
 		if err := cmd.Start(); err != nil {
 			cancel()
 			t.Fatalf("start port-forwarding: %v", err)
@@ -368,9 +358,6 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int,
 			}
 		}
 		cancel()
-		if logFile != nil {
-			logFile.Close()
-		}
 		if s := stderrBuf.String(); s != "" {
 			t.Logf("port-forwarding stderr: %s", s)
 		}
