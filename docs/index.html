@@ -541,6 +541,7 @@ Get-AuthenticodeSignature .\ssm-session-client.exe
             <tr><td>Use Session Manager plugin</td><td><code>ssm-session-plugin</code></td><td><code>SSC_SSM_SESSION_PLUGIN</code></td><td>—</td></tr>
             <tr><td>Enable auto-reconnect</td><td><code>enable-reconnect</code></td><td><code>SSC_ENABLE_RECONNECT</code></td><td>—</td></tr>
             <tr><td>Max reconnection attempts</td><td><code>max-reconnects</code></td><td><code>SSC_MAX_RECONNECTS</code></td><td>—</td></tr>
+            <tr><td>Port-forward outbound rate limit (bytes/sec; <code>0</code> = unlimited)</td><td><code>port-forward-bps</code></td><td><code>SSC_PORT_FORWARD_BPS</code></td><td>—</td></tr>
             <tr><td>Target aliases (config file only)</td><td><code>aliases</code></td><td>—</td><td>—</td></tr>
             <tr><td>Target alias (CLI flag, repeatable)</td><td><code>--alias name=tag:val</code></td><td>—</td><td>—</td></tr>
             <tr><td colspan="4" style="background:#f5f5f5;font-weight:600;padding:6px 12px;">ssh-direct options (nested under <code>ssh-direct:</code> in config file)</td></tr>
@@ -1039,6 +1040,7 @@ ssm-session-client port-forwarding devbox --remote-port 443 --local-port 8443</c
             <tr><td><code>--remote-port</code></td><td>Port on the instance (or <code>--host</code>) to forward to (required)</td><td><code>--remote-port 5432</code></td></tr>
             <tr><td><code>--host</code></td><td>Optional hostname or IP reachable from the instance to forward to instead of the instance itself</td><td><code>--host db.internal</code></td></tr>
             <tr><td><code>--local-port</code></td><td>Local listening port (omit for auto-assign)</td><td><code>--local-port 8888</code></td></tr>
+            <tr><td><code>--port-forward-bps</code></td><td>Outbound rate limit in bytes/sec. Default <code>56000</code> matches the SSM agent 500 kbps cap; set to <code>0</code> to disable</td><td><code>--port-forward-bps 0</code></td></tr>
           </tbody>
         </table>
       </div>
@@ -1055,6 +1057,14 @@ ssm-session-client port-forwarding devbox --remote-port 443 --local-port 8443</c
         keeps listening. Use <code>--enable-reconnect=false</code> to disable, or
         <code>--max-reconnects N</code> to limit attempts. See
         <a href="#config-reconnect">Automatic Reconnection</a> for details.
+      </div>
+      <div class="callout callout-tip">
+        <strong>Bandwidth limit (large file transfers):</strong> AWS SSM agent enforces a
+        ~500 kbps cap on port-forwarding sessions. The default <code>--port-forward-bps 56000</code>
+        (≈ 56 KB/s, 90% of the cap) prevents the agent's internal buffer from overflowing
+        during large uploads, which would otherwise cause the connection to drop mid-transfer.
+        Set <code>--port-forward-bps 0</code> to disable throttling if you are using a custom
+        SSM proxy without a bandwidth cap.
       </div>
 
       <h3>Common use cases</h3>
