@@ -1059,12 +1059,21 @@ ssm-session-client port-forwarding devbox --remote-port 443 --local-port 8443</c
         <a href="#config-reconnect">Automatic Reconnection</a> for details.
       </div>
       <div class="callout callout-tip">
-        <strong>Bandwidth limit (large file transfers):</strong> AWS SSM agent enforces a
-        ~500 kbps cap on port-forwarding sessions. The default <code>--port-forward-bps 56000</code>
-        (≈ 56 KB/s, 90% of the cap) prevents the agent's internal buffer from overflowing
-        during large uploads, which would otherwise cause the connection to drop mid-transfer.
-        Set <code>--port-forward-bps 0</code> to disable throttling if you are using a custom
-        SSM proxy without a bandwidth cap.
+        <strong>Bandwidth limit and large file transfers:</strong> AWS SSM agent enforces a
+        hard ~500 kbps (≈ 62 KB/s) bandwidth cap on all port-forwarding sessions, regardless
+        of your local network speed. When data is pushed faster than this cap, the agent's
+        internal receive buffer (4 MB) fills up in seconds and the session is terminated
+        mid-transfer — causing errors like <em>Connection reset by peer</em> or
+        <em>Broken pipe</em> during SCP/SFTP uploads.
+        <br><br>
+        <code>--port-forward-bps</code> throttles outbound data at the TCP stream level so
+        the agent's buffer never overflows. The default <code>56000</code> (≈ 56 KB/s) is
+        90% of the agent cap, leaving headroom for SSH/protocol overhead. For interactive
+        use (web browsing, SSH sessions, database queries) the throttle is transparent —
+        those workloads never sustain enough throughput to trigger the cap.
+        <br><br>
+        Set <code>--port-forward-bps 0</code> to disable throttling entirely, for example
+        when using a custom SSM-compatible proxy that does not enforce the 500 kbps limit.
       </div>
 
       <h3>Common use cases</h3>
