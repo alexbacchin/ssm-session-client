@@ -67,6 +67,95 @@ func TestSCPUploadDownload(t *testing.T) {
 	}
 }
 
+// TestSCPLargeFileTransfer tests SCP upload and download of files large enough
+// to reliably trigger inbound sequence-reorder and retransmit conditions — the
+// scenario that caused silent data loss at ~40 MB (fixed by handleOutputData).
+//
+// Two sizes are tested:
+//   - 10 MB: boundary between "usually fine" and "starts dropping"
+//   - 40 MB: the reported failure threshold
+//
+// Each sub-test reuses the same port-forwarding tunnel so only one SSM session
+// is opened for the whole test.
+func TestSCPLargeFileTransfer(t *testing.T) {
+	scpBin, err := exec.LookPath("scp")
+	if err != nil {
+		t.Skip("scp binary not found on PATH; skipping large SCP test")
+	}
+
+	i := infra(t)
+	waitForSSMReady(t, i.InstanceID)
+	terminateAllSessions(t, i.InstanceID)
+	registerSessionLeakCheck(t, i.InstanceID)
+
+	keyPath, pubKeyPath := generateTempKeyPair(t)
+	pushInstanceConnectKey(t, i, pubKeyPath)
+
+	localPort := freePort(t)
+	// Pass --port-forward-bps to stay under the 500 kbps SSM agent cap so the
+	// agent's smux receive buffer never fills faster than sshd can drain it.
+	startPortForwarder(t, i, localPort, 22, "--port-forward-bps=56000")
+
+	cases := []struct {
+		name    string
+		size    int
+		timeout time.Duration
+	}{
+		{"10MB", 10 * 1024 * 1024, 5 * time.Minute},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			runSCPTransferTestWithTimeout(t, scpBin, i, keyPath, pubKeyPath, localPort, tc.size, tc.timeout)
+		})
+	}
+}
+
+// runSCPTransferTestWithTimeout is like runSCPTransferTest but accepts an explicit
+// per-direction scp timeout, needed for large files over a tunnelled connection.
+// pubKeyPath is re-pushed via EC2 Instance Connect before the download because the
+// ephemeral key (60 s TTL) may have expired during a long upload.
+func runSCPTransferTestWithTimeout(t *testing.T, scpBin string, i InfraOutputs, keyPath, pubKeyPath string, localPort, size int, timeout time.Duration) {
+	t.Helper()
+
+	dir := t.TempDir()
+	localFile := filepath.Join(dir, "upload.bin")
+	downloadFile := filepath.Join(dir, "download.bin")
+	remoteFile := fmt.Sprintf("/tmp/scp_large_%d.bin", size)
+
+	wantData := randomBytes(t, size)
+	if err := os.WriteFile(localFile, wantData, 0o600); err != nil {
+		t.Fatalf("write upload file: %v", err)
+	}
+
+	sshOpts := []string{
+		"-i", keyPath,
+		"-o", fmt.Sprintf("Port=%d", localPort),
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=30",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=6",
+	}
+
+	remoteTarget := fmt.Sprintf("%s@localhost:%s", scpUser, remoteFile)
+
+	scpUpload(t, scpBin, timeout, append(sshOpts, localFile, remoteTarget)...)
+	// Re-push the ephemeral key: it expires after 60 s and the upload may have taken longer.
+	pushInstanceConnectKey(t, i, pubKeyPath)
+	scpDownload(t, scpBin, timeout, append(sshOpts, remoteTarget, downloadFile)...)
+
+	gotData, err := os.ReadFile(downloadFile)
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+	if !bytes.Equal(gotData, wantData) {
+		t.Errorf("content mismatch: uploaded %d bytes, downloaded %d bytes", len(wantData), len(gotData))
+	}
+	t.Logf("SCP large file round-trip OK: %d bytes", size)
+}
+
 // TestSCPProxyCommand tests SCP using ssm-session-client as an SSH ProxyCommand
 // (the same mode used by VS Code Remote SSH and other tools).
 // This exercises the ssh-proxy path rather than native port-forwarding.
@@ -102,6 +191,8 @@ func TestSCPProxyCommand(t *testing.T) {
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=30",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=6",
 	}
 
 	// Upload.
@@ -142,6 +233,8 @@ func runSCPTransferTest(t *testing.T, scpBin string, i InfraOutputs, keyPath str
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=30",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=6",
 	}
 
 	remoteTarget := fmt.Sprintf("%s@localhost:%s", scpUser, remoteFile)

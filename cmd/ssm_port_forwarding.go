@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/session"
 	"github.com/spf13/cobra"
 )
@@ -40,5 +41,6 @@ func init() {
 	portForwardingCmd.Flags().IntVar(&portForwardingRemotePort, "remote-port", 0, "Port on the target instance (or --host) to connect to (required)")
 	portForwardingCmd.Flags().IntVar(&portForwardingLocalPort, "local-port", 0, "Local port to listen on (default: random)")
 	portForwardingCmd.Flags().StringVar(&portForwardingHost, "host", "", "Remote host reachable from the instance to forward to")
+	portForwardingCmd.Flags().IntVar(&config.Flags().PortForwardBps, "port-forward-bps", 0, "Outbound rate limit in bytes/sec (0 = no limit; use ~56000 for 500 kbps SSM cap)")
 	rootCmd.AddCommand(portForwardingCmd)
 }

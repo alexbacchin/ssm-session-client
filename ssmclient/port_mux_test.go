@@ -238,7 +238,7 @@ func TestHandleMuxConnectionCancellation(t *testing.T) {
 	// Start handleMuxConnection in a goroutine
 	done := make(chan struct{})
 	go func() {
-		handleMuxConnection(ctx, clientSession, tcpClient)
+		handleMuxConnection(ctx, clientSession, tcpClient, 0)
 		close(done)
 	}()
 

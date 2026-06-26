@@ -5,9 +5,11 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -272,7 +274,7 @@ func TestPortForwardingToRDPPort(t *testing.T) {
 // It registers a t.Cleanup to send SIGINT for graceful shutdown.
 // The function blocks until the local TCP port is accepting connections, retrying the
 // entire subprocess if the handshake hangs or the process exits prematurely.
-func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int) {
+func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int, extraArgs ...string) {
 	t.Helper()
 	args := []string{
 		"--config", "/dev/null",
@@ -283,6 +285,7 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int)
 		"--remote-port", strconv.Itoa(remotePort),
 		"--local-port", strconv.Itoa(localPort),
 	}
+	args = append(args, extraArgs...)
 	// Note: --config and --log-level are also added by runCmd, but startPortForwarder
 	// uses exec.CommandContext directly, so these are needed here.
 
@@ -294,6 +297,7 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int)
 		cancel    context.CancelFunc
 		exited    chan struct{}
 		stderrBuf strings.Builder
+		logFile   *os.File
 	)
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -306,8 +310,15 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int)
 		cancel = cancelFn
 		stderrBuf.Reset()
 
+		logPath := filepath.Join(os.TempDir(), fmt.Sprintf("ssm-portfwd-%d.log", time.Now().UnixNano()))
+		logFile, _ = os.Create(logPath)
+		t.Logf("port-forwarding debug log: %s", logPath)
+		var logWriter io.Writer = &stderrBuf
+		if logFile != nil {
+			logWriter = io.MultiWriter(&stderrBuf, logFile)
+		}
 		cmd = exec.CommandContext(ctx, binaryPath, args...) //nolint:gosec
-		cmd.Stderr = &stderrBuf
+		cmd.Stderr = logWriter
 		if err := cmd.Start(); err != nil {
 			cancel()
 			t.Fatalf("start port-forwarding: %v", err)
@@ -357,6 +368,9 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int)
 			}
 		}
 		cancel()
+		if logFile != nil {
+			logFile.Close()
+		}
 		if s := stderrBuf.String(); s != "" {
 			t.Logf("port-forwarding stderr: %s", s)
 		}

@@ -33,6 +33,7 @@ type Config struct {
 	SSOOpenBrowser         bool                   `mapstructure:"sso-open-browser"`
 	EnableReconnect        bool                   `mapstructure:"enable-reconnect"`
 	MaxReconnects          int                    `mapstructure:"max-reconnects"`
+	PortForwardBps         int                    `mapstructure:"port-forward-bps"`
 	SSHDirect              SSHDirectConfig        `mapstructure:"ssh-direct"`
 	RDPPort                int                    `mapstructure:"rdp-port"`
 	RDPLocalPort           int                    `mapstructure:"rdp-local-port"`

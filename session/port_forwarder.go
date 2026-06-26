@@ -30,6 +30,7 @@ func StartSSMPortForwarder(target string, localPort int, remotePort int, remoteH
 		Host:            remoteHost,
 		EnableReconnect: config.Flags().EnableReconnect,
 		MaxReconnects:   config.Flags().MaxReconnects,
+		MaxBytesPerSec:  config.Flags().PortForwardBps,
 	}
 	ssmMessagesCfg, err := BuildAWSConfig(context.Background(), "ssmmessages")
 	if err != nil {

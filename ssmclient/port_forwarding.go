@@ -31,6 +31,7 @@ type PortForwardingInput struct {
 	ReadyCh         chan struct{}  // optional; closed when the TCP listener is ready
 	EnableReconnect bool          // reconnect on WebSocket close (mux mode only)
 	MaxReconnects   int           // 0 = unlimited; ignored when EnableReconnect is false
+	MaxBytesPerSec  int           // outbound rate limit in bytes/sec (0 = no limit)
 }
 
 // PortForwardingSession starts a port forwarding session using the PortForwardingInput parameters to
@@ -117,7 +118,7 @@ func startMuxPortForwardingSession(ctx context.Context, c *datachannel.SsmDataCh
 	current := c
 	reconnectCount := 0
 	for {
-		bridgeErr := startMuxPortForwarding(ctx, current, lsnr)
+		bridgeErr := startMuxPortForwarding(ctx, current, lsnr, opts.MaxBytesPerSec)
 
 		select {
 		case <-ctx.Done():
