@@ -92,24 +92,90 @@ func TestSCPLargeFileTransfer(t *testing.T) {
 	pushInstanceConnectKey(t, i, pubKeyPath)
 
 	localPort := freePort(t)
-	// Pass --port-forward-bps to stay under the 500 kbps SSM agent cap so the
-	// agent's smux receive buffer never fills faster than sshd can drain it.
+	// 56000 bps ≈ 90% of the SSM agent's 500 kbps session cap; prevents the
+	// agent's smux receive buffer from overflowing during large uploads.
 	startPortForwarder(t, i, localPort, 22, "--port-forward-bps=56000")
 
-	cases := []struct {
-		name    string
-		size    int
-		timeout time.Duration
-	}{
-		{"10MB", 10 * 1024 * 1024, 5 * time.Minute},
+	t.Run("10MB", func(t *testing.T) {
+		runSCPTransferTestWithTimeout(t, scpBin, i, keyPath, pubKeyPath, localPort, 10*1024*1024, 5*time.Minute)
+	})
+}
+
+// TestSCPLargeFileTransferHighBps exercises the 10 MB round-trip at 1 MB/s
+// (well above the SSM agent's ~500 kbps cap). The transfer may succeed when
+// the agent's internal buffers absorb the burst, but it is not guaranteed —
+// this test is intentionally non-fatal so it does not block CI.
+func TestSCPLargeFileTransferHighBps(t *testing.T) {
+	scpBin, err := exec.LookPath("scp")
+	if err != nil {
+		t.Skip("scp binary not found on PATH")
 	}
 
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			runSCPTransferTestWithTimeout(t, scpBin, i, keyPath, pubKeyPath, localPort, tc.size, tc.timeout)
-		})
-	}
+	i := infra(t)
+	waitForSSMReady(t, i.InstanceID)
+	terminateAllSessions(t, i.InstanceID)
+	registerSessionLeakCheck(t, i.InstanceID)
+
+	keyPath, pubKeyPath := generateTempKeyPair(t)
+	pushInstanceConnectKey(t, i, pubKeyPath)
+
+	localPort := freePort(t)
+	startPortForwarder(t, i, localPort, 22, "--port-forward-bps=1000000")
+
+	t.Run("10MB@1MBps", func(t *testing.T) {
+		dir := t.TempDir()
+		localFile := filepath.Join(dir, "upload.bin")
+		downloadFile := filepath.Join(dir, "download.bin")
+		remoteFile := "/tmp/scp_highbps_10485760.bin"
+		size := 10 * 1024 * 1024
+
+		wantData := randomBytes(t, size)
+		if err := os.WriteFile(localFile, wantData, 0o600); err != nil {
+			t.Fatalf("write upload file: %v", err)
+		}
+
+		sshOpts := []string{
+			"-i", keyPath,
+			"-o", fmt.Sprintf("Port=%d", localPort),
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "ConnectTimeout=30",
+			"-o", "ServerAliveInterval=30",
+			"-o", "ServerAliveCountMax=6",
+		}
+		remoteTarget := fmt.Sprintf("%s@localhost:%s", scpUser, remoteFile)
+		timeout := 2 * time.Minute
+
+		// Run upload — log failure but don't fatal, this rate may exceed agent capacity.
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		uploadArgs := append(sshOpts, localFile, remoteTarget)
+		cmd := exec.CommandContext(ctx, scpBin, uploadArgs...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Logf("EXPECTED FLAKINESS: 1 MB/s upload failed (SSM agent cap exceeded): %v\n%s", err, out)
+			return
+		}
+
+		pushInstanceConnectKey(t, i, pubKeyPath)
+
+		ctx2, cancel2 := context.WithTimeout(context.Background(), timeout)
+		defer cancel2()
+		downloadArgs := append(sshOpts, remoteTarget, downloadFile)
+		cmd2 := exec.CommandContext(ctx2, scpBin, downloadArgs...)
+		if out, err := cmd2.CombinedOutput(); err != nil {
+			t.Logf("EXPECTED FLAKINESS: 1 MB/s download failed: %v\n%s", err, out)
+			return
+		}
+
+		gotData, err := os.ReadFile(downloadFile)
+		if err != nil {
+			t.Fatalf("read downloaded file: %v", err)
+		}
+		if !bytes.Equal(gotData, wantData) {
+			t.Errorf("content mismatch: uploaded %d bytes, downloaded %d bytes", len(wantData), len(gotData))
+		}
+		t.Logf("SCP high-bps round-trip OK: %d bytes at 1 MB/s limit", size)
+	})
 }
 
 // runSCPTransferTestWithTimeout is like runSCPTransferTest but accepts an explicit
