@@ -253,8 +253,6 @@ func TestPortForwardingToRDPPort(t *testing.T) {
 	waitForSSMReady(t, i.WindowsInstanceID)
 	terminateAllSessions(t, i.WindowsInstanceID)
 	registerSessionLeakCheck(t, i.WindowsInstanceID)
-	// LIFO: explicitly terminate sessions before the leak check polls the API.
-	t.Cleanup(func() { terminateAllSessions(t, i.WindowsInstanceID) })
 
 	localPort := freePort(t)
 	winInfra := i
@@ -395,8 +393,6 @@ func TestPortForwardingToRemoteHost(t *testing.T) {
 		echoCancel()
 		t.Fatalf("start netcat listener: %v", err)
 	}
-	// Cleanup runs LIFO: this fires before registerSessionLeakCheck's cleanup,
-	// ensuring the shell session is terminated before the leak check runs.
 	t.Cleanup(func() {
 		echoCancel()
 		echoCmd.Wait() //nolint:errcheck

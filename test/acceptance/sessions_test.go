@@ -92,8 +92,16 @@ type sessionSet map[string]bool
 func registerSessionLeakCheck(t *testing.T, instanceID string) {
 	t.Helper()
 	before := captureActiveSessions(t, instanceID)
+	// Leak check registered first; LIFO means it runs last.
 	t.Cleanup(func() {
 		assertNoNewSessions(t, instanceID, before)
+	})
+	// Terminate sessions explicitly before the leak check polls the API.
+	// WebSocket-closed sessions (ProxyCommand, port-forwarding) can take >80s
+	// to appear terminated in DescribeSessions; an explicit TerminateSession
+	// call makes it near-instant.
+	t.Cleanup(func() {
+		terminateAllSessions(t, instanceID)
 	})
 }
 
