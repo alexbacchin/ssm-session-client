@@ -94,8 +94,9 @@ func registerSessionLeakCheck(t *testing.T, instanceID string) {
 	before := captureActiveSessions(t, instanceID)
 	t.Cleanup(func() {
 		// Allow time for sessions to terminate naturally before checking.
-		// Mux sessions may need longer for the agent to clean up streams.
-		time.Sleep(8 * time.Second)
+		// ProxyCommand sessions close implicitly via WebSocket and can take
+		// longer to reflect in the SSM API than mux sessions.
+		time.Sleep(20 * time.Second)
 		assertNoNewSessions(t, instanceID, before)
 	})
 }
@@ -170,9 +171,10 @@ func assertNoNewSessions(t *testing.T, instanceID string, before sessionSet) {
 	}
 	client := ssm.NewFromConfig(cfg)
 
-	// Retry a few times — sessions may take a moment to transition from Active
-	// after the process sends TerminateSession.
-	const maxRetries = 3
+	// Retry with backoff — sessions may take a moment to transition from Active
+	// after the process exits, especially on the ProxyCommand path where
+	// termination is driven by WebSocket closure rather than TerminateSession.
+	const maxRetries = 6
 	var leaked []string
 	for attempt := range maxRetries {
 		after := listActiveSessions(ctx, client, instanceID)
