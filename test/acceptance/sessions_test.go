@@ -93,10 +93,6 @@ func registerSessionLeakCheck(t *testing.T, instanceID string) {
 	t.Helper()
 	before := captureActiveSessions(t, instanceID)
 	t.Cleanup(func() {
-		// Allow time for sessions to terminate naturally before checking.
-		// ProxyCommand sessions close implicitly via WebSocket and can take
-		// longer to reflect in the SSM API than mux sessions.
-		time.Sleep(20 * time.Second)
 		assertNoNewSessions(t, instanceID, before)
 	})
 }
@@ -161,7 +157,11 @@ func terminateAllSessions(t *testing.T, instanceID string) {
 
 func assertNoNewSessions(t *testing.T, instanceID string, before sessionSet) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Total budget: ~60s. Poll with short initial intervals that back off so
+	// fast-terminating sessions (mux) don't wait unnecessarily, while
+	// ProxyCommand sessions (terminated via WebSocket closure, slower to
+	// reflect in the SSM API) still get enough time.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(globalInfraOutputs.AWSRegion))
@@ -171,12 +171,9 @@ func assertNoNewSessions(t *testing.T, instanceID string, before sessionSet) {
 	}
 	client := ssm.NewFromConfig(cfg)
 
-	// Retry with backoff — sessions may take a moment to transition from Active
-	// after the process exits, especially on the ProxyCommand path where
-	// termination is driven by WebSocket closure rather than TerminateSession.
-	const maxRetries = 6
+	intervals := []time.Duration{2, 3, 5, 5, 10, 10, 15, 15}
 	var leaked []string
-	for attempt := range maxRetries {
+	for i, wait := range intervals {
 		after := listActiveSessions(ctx, client, instanceID)
 		leaked = nil
 		for id := range after {
@@ -187,9 +184,13 @@ func assertNoNewSessions(t *testing.T, instanceID string, before sessionSet) {
 		if len(leaked) == 0 {
 			return
 		}
-		if attempt < maxRetries-1 {
-			t.Logf("session leak check: %d session(s) still active, retrying in 5s...", len(leaked))
-			time.Sleep(5 * time.Second)
+		if i < len(intervals)-1 {
+			t.Logf("session leak check: %d session(s) still active, retrying in %s...", len(leaked), wait)
+			select {
+			case <-ctx.Done():
+				break
+			case <-time.After(wait * time.Second):
+			}
 		}
 	}
 
