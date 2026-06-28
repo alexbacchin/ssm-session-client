@@ -1,13 +1,14 @@
 name: Release
 
-# Trigger on version tags (e.g. v1.2.3, v0.8.0-rc1).
+# Trigger manually from the GitHub Actions UI. Acceptance tests run first;
+# the git tag and GitHub release are only created if they pass.
 on:
-  push:
-    tags:
-      - "v*"
-  # Allow manual release workflow trigger (e.g., to skip acceptance tests for doc-only changes)
   workflow_dispatch:
     inputs:
+      version:
+        description: "Release version (e.g. v1.2.3 or v1.2.3-rc1)"
+        required: true
+        type: string
       skip-acceptance:
         description: "Skip acceptance tests (useful for doc-only changes)"
         required: false
@@ -19,13 +20,14 @@ on:
 
 permissions:
   id-token: write   # OIDC for AWS acceptance tests
-  contents: write   # Create releases and upload assets
+  contents: write   # Create tags, releases, and upload assets
 
 env:
   GO_VERSION_FILE: go.mod
   TF_VERSION: "1.9"
   AWS_REGION: us-west-2
   MAKEFILE: test/scripts/Makefile
+  VERSION: ${{ github.event.inputs.version }}
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -56,15 +58,14 @@ jobs:
     name: Acceptance tests
     needs: unit-tests
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.inputs.skip-acceptance != 'true'
+    if: github.event.inputs.skip-acceptance != 'true'
     concurrency:
       group: acceptance-tests-infra
       cancel-in-progress: false
 
     env:
-      # Sanitise the tag for use in resource names (e.g. v1.2.3-rc1 → v1-2-3-rc1).
-      NAME_PREFIX: ssc-rel-${{ github.ref_name }}
-      TF_STATE_KEY: acceptance/release-${{ github.ref_name }}/terraform.tfstate
+      NAME_PREFIX: ssc-rel-${{ github.event.inputs.version }}
+      TF_STATE_KEY: acceptance/release-${{ github.event.inputs.version }}/terraform.tfstate
 
     steps:
       - uses: actions/checkout@v7
@@ -90,7 +91,6 @@ jobs:
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           echo "TF_STATE_BUCKET=ssm-session-client-tfstate-${ACCOUNT_ID}-${AWS_REGION}" >> "$GITHUB_ENV"
-          # Sanitise name_prefix: lowercase, replace dots/underscores with hyphens, truncate.
           SAFE_PREFIX=$(echo "${{ env.NAME_PREFIX }}" | tr '[:upper:].' '[:lower:]-' | cut -c1-40)
           echo "SAFE_NAME_PREFIX=${SAFE_PREFIX}" >> "$GITHUB_ENV"
 
@@ -117,35 +117,52 @@ jobs:
           TF_EXTRA_VARS='-var="name_prefix=${{ env.SAFE_NAME_PREFIX }}"'
 
   # ---------------------------------------------------------------------------
-  # Stage 3: Create GitHub release (after all tests pass)
+  # Stage 3: Create git tag (only after all tests pass)
   # ---------------------------------------------------------------------------
-  create-release:
-    name: Create GitHub release
+  create-tag:
+    name: Create git tag ${{ github.event.inputs.version }}
     needs: [unit-tests, acceptance-tests]
     runs-on: ubuntu-latest
     if: always() && (needs.unit-tests.result == 'success') && (needs.acceptance-tests.result == 'success' || needs.acceptance-tests.result == 'skipped')
     outputs:
-      tag: ${{ github.ref_name }}
+      version: ${{ github.event.inputs.version }}
 
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # Full history for changelog generation
+          fetch-depth: 0
+
+      - name: Tag and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ github.event.inputs.version }}"
+          git push origin "${{ github.event.inputs.version }}"
+
+  # ---------------------------------------------------------------------------
+  # Stage 4: Create GitHub release
+  # ---------------------------------------------------------------------------
+  create-release:
+    name: Create GitHub release
+    needs: create-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Generate changelog
         id: changelog
         run: |
-          # For full releases, find the previous full release tag (skip pre-release tags).
-          # For pre-releases, use the previous tag of any kind.
+          VERSION="${{ github.event.inputs.version }}"
           IS_PRERELEASE=false
-          if echo "${{ github.ref_name }}" | grep -qE '\-(alpha|beta|rc)'; then
+          if echo "$VERSION" | grep -qE '\-(alpha|beta|rc)'; then
             IS_PRERELEASE=true
           fi
 
           if [ "$IS_PRERELEASE" = "true" ]; then
             PREV_TAG=$(git tag --sort=-v:refname | grep '^v' | sed -n '2p')
           else
-            # Skip pre-release tags (alpha/beta/rc) to find the last full release.
             PREV_TAG=$(git tag --sort=-v:refname | grep '^v' | grep -vE '\-(alpha|beta|rc)' | sed -n '2p')
           fi
 
@@ -153,7 +170,6 @@ jobs:
             echo "body=Initial release" >> "$GITHUB_OUTPUT"
           else
             LOG=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" -- . ':!test/')
-            # Escape for multiline GitHub output.
             {
               echo "body<<CHANGELOG_EOF"
               echo "## Changes since ${PREV_TAG}"
@@ -167,13 +183,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Only run when publishing a full release (no pre-release suffix).
-          if echo "${{ github.ref_name }}" | grep -qE '\-(alpha|beta|rc)'; then
-            echo "Pre-release tag — skipping cleanup."
+          VERSION="${{ github.event.inputs.version }}"
+          if echo "$VERSION" | grep -qE '\-(alpha|beta|rc)'; then
+            echo "Pre-release — skipping cleanup."
             exit 0
           fi
-          # Strip patch: v1.2.3 → v1.2 to match any pre-release of the same minor version.
-          VERSION_PREFIX=$(echo "${{ github.ref_name }}" | grep -oE '^v[0-9]+\.[0-9]+\.[0-9]+')
+          VERSION_PREFIX=$(echo "$VERSION" | grep -oE '^v[0-9]+\.[0-9]+\.[0-9]+')
           if [ -z "$VERSION_PREFIX" ]; then
             echo "Could not parse version prefix — skipping cleanup."
             exit 0
@@ -191,19 +206,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Detect pre-release from tag (e.g. v1.0.0-rc1, v0.8.0-beta).
+          VERSION="${{ github.event.inputs.version }}"
           PRERELEASE_FLAG=""
-          if echo "${{ github.ref_name }}" | grep -qE '\-(alpha|beta|rc)'; then
+          if echo "$VERSION" | grep -qE '\-(alpha|beta|rc)'; then
             PRERELEASE_FLAG="--prerelease"
           fi
-
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
+          gh release create "$VERSION" \
+            --title "$VERSION" \
             --notes "${{ steps.changelog.outputs.body }}" \
             $PRERELEASE_FLAG
 
   # ---------------------------------------------------------------------------
-  # Stage 4: Build and upload release binaries (parallel matrix)
+  # Stage 5: Build and upload release binaries (parallel matrix)
   # ---------------------------------------------------------------------------
   release-binaries:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
@@ -219,6 +233,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.version }}
 
       - name: Extract Go version from go.mod
         id: go-version
@@ -231,7 +247,7 @@ jobs:
           goarch: ${{ matrix.goarch }}
           goversion: ${{ steps.go-version.outputs.version }}
           binary_name: ssm-session-client
-          ldflags: "-X 'github.com/alexbacchin/ssm-session-client/cmd.version=${{ github.ref_name }}'"
+          ldflags: "-X 'github.com/alexbacchin/ssm-session-client/cmd.version=${{ github.event.inputs.version }}'"
 
   release-binaries-arm:
     name: Build linux/arm${{ matrix.goarm }}
@@ -243,6 +259,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.version }}
 
       - name: Extract Go version from go.mod
         id: go-version
@@ -256,7 +274,7 @@ jobs:
           goarm: ${{ matrix.goarm }}
           goversion: ${{ steps.go-version.outputs.version }}
           binary_name: ssm-session-client
-          ldflags: "-X 'github.com/alexbacchin/ssm-session-client/cmd.version=${{ github.ref_name }}'"
+          ldflags: "-X 'github.com/alexbacchin/ssm-session-client/cmd.version=${{ github.event.inputs.version }}'"
 
   release-windows-signed:
     name: Build windows/${{ matrix.goarch }} (signed)
@@ -268,6 +286,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.version }}
 
       - name: Extract Go version from go.mod
         id: go-version
@@ -286,9 +306,10 @@ jobs:
           GOOS: windows
           GOARCH: ${{ matrix.goarch }}
         run: |
+          VERSION="${{ github.event.inputs.version }}"
           go build \
-            -ldflags "-X 'github.com/alexbacchin/ssm-session-client/cmd.version=${{ github.ref_name }}'" \
-            -o ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe \
+            -ldflags "-X 'github.com/alexbacchin/ssm-session-client/cmd.version=${VERSION}'" \
+            -o ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe \
             .
 
       - name: Sign Windows binary
@@ -296,6 +317,7 @@ jobs:
           CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
           CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: |
+          VERSION="${{ github.event.inputs.version }}"
           if [ -n "$CERT_PFX" ]; then
             echo "$CERT_PFX" | base64 -d > cert.pfx
             osslsigncode sign \
@@ -304,10 +326,10 @@ jobs:
               -n "ssm-session-client" \
               -i "https://github.com/${{ github.repository }}" \
               -t "http://timestamp.digicert.com" \
-              -in ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe \
-              -out ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}-signed.exe
-            mv ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}-signed.exe \
-               ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe
+              -in ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe \
+              -out ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}-signed.exe
+            mv ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}-signed.exe \
+               ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe
             rm -f cert.pfx
             echo "Binary signed successfully"
           else
@@ -316,23 +338,25 @@ jobs:
 
       - name: Generate checksums
         run: |
-          md5sum ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe > \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.md5
-          sha256sum ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe > \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.sha256
+          VERSION="${{ github.event.inputs.version }}"
+          md5sum ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe > \
+            ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe.md5
+          sha256sum ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe > \
+            ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe.sha256
 
       - name: Upload to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ github.ref_name }} \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.md5 \
-            ssm-session-client-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe.sha256 \
+          VERSION="${{ github.event.inputs.version }}"
+          gh release upload "${VERSION}" \
+            ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe \
+            ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe.md5 \
+            ssm-session-client-${VERSION}-windows-${{ matrix.goarch }}.exe.sha256 \
             --clobber
 
   # ---------------------------------------------------------------------------
-  # Stage 5: Deploy documentation
+  # Stage 6: Deploy documentation
   # ---------------------------------------------------------------------------
   trigger-deploy-docs:
     name: Trigger documentation deployment
@@ -351,6 +375,6 @@ jobs:
               workflow_id: 'deploy-docs.yml',
               ref: 'main',
               inputs: {
-                tag: context.ref.replace('refs/tags/', '')
+                tag: '${{ github.event.inputs.version }}'
               }
             })
