@@ -1,0 +1,72 @@
+name: Deploy Docs (dev preview)
+
+# Deploys docs/  from the docs-dev branch to /dev/ on the Pages site.
+# Does not touch versioned directories — production docs are unaffected.
+on:
+  push:
+    branches:
+      - "feature/*"
+      - "fix/*"
+    paths:
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-docs-dev:
+    name: Deploy dev preview
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}dev/
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Download currently-deployed site
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p site
+          ARTIFACT_ID=$(gh api \
+            "repos/${{ github.repository }}/actions/artifacts?name=github-pages&per_page=5" \
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
+          if [ -n "$ARTIFACT_ID" ]; then
+            echo "Restoring previous site from artifact $ARTIFACT_ID"
+            gh api "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" > pages.zip
+            unzip -p pages.zip artifact.tar | tar -xz -C site/ || true
+            rm -f pages.zip
+            echo "Restored $(find site -maxdepth 1 -mindepth 1 | wc -l) top-level entries"
+          else
+            echo "No previous artifact — starting fresh"
+          fi
+
+      - name: Build dev preview
+        run: |
+          mkdir -p site/dev
+          cp -r docs/* site/dev/
+          sed -i "s|%%VERSION%%|dev|g" site/dev/index.html
+
+          echo "Dev preview built. Site structure (top-level):"
+          ls site/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

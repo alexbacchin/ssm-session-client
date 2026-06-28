@@ -14,6 +14,10 @@ permissions:
   id-token: write
   actions: read
 
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy-docs:
     name: Deploy documentation for ${{ github.event.inputs.tag }}
@@ -26,7 +30,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ github.event.inputs.tag }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -35,104 +38,74 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get the artifact ID of the last successful Pages deployment so we can
-          # layer the new version on top rather than replacing the whole site.
+          mkdir -p site
           ARTIFACT_ID=$(gh api \
             "repos/${{ github.repository }}/actions/artifacts?name=github-pages&per_page=5" \
             --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
-
-          mkdir -p site
-
           if [ -n "$ARTIFACT_ID" ]; then
-            echo "Downloading previous Pages artifact $ARTIFACT_ID"
+            echo "Restoring previous site from artifact $ARTIFACT_ID"
             gh api "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" > pages.zip
-            # The Pages artifact is a tar.gz wrapped inside a zip
             unzip -p pages.zip artifact.tar | tar -xz -C site/ || true
             rm -f pages.zip
-            echo "Existing site content restored ($(find site -maxdepth 1 -mindepth 1 | wc -l) top-level entries)"
+            echo "Restored $(find site -maxdepth 1 -mindepth 1 | wc -l) top-level entries"
           else
-            echo "No previous Pages artifact found — starting fresh"
+            echo "No previous artifact — starting fresh"
           fi
-        continue-on-error: true
 
-      - name: Build versioned documentation
+      - name: Build all versioned documentation
         run: |
           TAG="${{ github.event.inputs.tag }}"
 
-          # Ensure site dir exists (artifact download may have been skipped on first deploy)
-          mkdir -p site
+          # Collect stable v1+ tags, newest first
+          ALL_TAGS=$(git tag -l 'v[0-9]*' | sort -V -r | grep -v -E '\-(alpha|beta|rc)' | awk -F'[v.]' '{if ($2+0 >= 1) print}')
 
-          # Copy current docs as root (will be overwritten below if not latest)
+          LATEST_STABLE=$(echo "$ALL_TAGS" | head -1)
+          echo "Latest stable: $LATEST_STABLE"
+
+          # Build each versioned dir from its own tag commit
+          echo "$ALL_TAGS" | while read -r VER; do
+            echo "Building docs for $VER"
+            mkdir -p "site/$VER"
+            git checkout "$VER" -- docs/
+            cp -r docs/* "site/$VER/"
+            sed -i "s|%%VERSION%%|$VER|g" "site/$VER/index.html"
+            git checkout HEAD -- docs/
+          done
+
+          # Root = latest stable tag content
+          git checkout "$LATEST_STABLE" -- docs/
           cp -r docs/* site/
+          sed -i "s|%%VERSION%%|$LATEST_STABLE|g" site/index.html
+          git checkout HEAD -- docs/
 
-          # Create a versioned copy
-          echo "Building versioned documentation for $TAG"
-          mkdir -p "site/$TAG"
-          cp -r docs/* "site/$TAG/"
-          sed -i "s|%%VERSION%%|$TAG|g" "site/$TAG/index.html"
+          # Always use HEAD versions.html everywhere (contains navigation fixes)
+          cp docs/versions.html site/versions.html
 
-          # Get all version tags and separate stable from pre-release
-          echo "Building versions list from git tags"
-          ALL_TAGS=$(git tag -l 'v[0-9]*' | sort -V -r)
-
-          # Find latest stable release (no -alpha, -beta, -rc suffix)
-          LATEST_STABLE=$(echo "$ALL_TAGS" | grep -v -E '\-(alpha|beta|rc)' | head -1)
-
-          # If no stable found, use the latest pre-release
-          if [ -z "$LATEST_STABLE" ]; then
-            LATEST_STABLE=$(echo "$ALL_TAGS" | head -1)
-          fi
-
-          echo "Latest stable release: $LATEST_STABLE"
-          echo "Current tag: $TAG"
-
-          # Determine what version should be at root (latest stable)
-          ROOT_VERSION="$LATEST_STABLE"
-          if [ -z "$ROOT_VERSION" ]; then
-            ROOT_VERSION="$TAG"
-          fi
-
-          echo "Root documentation will point to: $ROOT_VERSION"
-
-          # Set root docs to latest stable
-          if [ "$ROOT_VERSION" = "$TAG" ]; then
-            # Current tag is the latest stable, update root
-            sed -i "s|%%VERSION%%|$TAG|g" site/index.html
-          else
-            # Current tag is pre-release, use latest stable for root
-            sed -i "s|%%VERSION%%|$ROOT_VERSION|g" site/index.html
-            # Also create root copy if not already present
-            if [ ! -f "site/index.html" ]; then
-              cp -r docs/* site/
-              sed -i "s|%%VERSION%%|$ROOT_VERSION|g" site/index.html
-            fi
-          fi
-
-          # Build versions.json — for a full release, strip pre-release tags of the same version.
+          # Build versions.json — strip pre-release siblings when releasing stable
           IS_PRERELEASE=false
           if echo "$TAG" | grep -qE '\-(alpha|beta|rc)'; then
             IS_PRERELEASE=true
           fi
-
           if [ "$IS_PRERELEASE" = "false" ]; then
-            # Strip patch to get the version prefix (e.g. v1.2.3 → v1.2.3).
-            # Remove any pre-release tags that share the same base version (v1.2.3-alpha, v1.2.3-rc1, etc.)
             VERSION_BASE=$(echo "$TAG" | grep -oE '^v[0-9]+\.[0-9]+\.[0-9]+')
             FILTERED_TAGS=$(echo "$ALL_TAGS" | grep -v -E "^${VERSION_BASE}-(alpha|beta|rc)")
           else
             FILTERED_TAGS="$ALL_TAGS"
           fi
-
           ALL_TAGS_JSON=$(echo "$FILTERED_TAGS" | jq -R . | jq -s .)
-
-          echo "Creating versions index"
           jq -n \
-            --arg latest "$ROOT_VERSION" \
+            --arg latest "$LATEST_STABLE" \
             --argjson versions "$ALL_TAGS_JSON" \
             '{latest: $latest, versions: $versions}' > site/versions.json
 
-          echo "Generated versions.json:"
-          cat site/versions.json
+          # Propagate versions.json and latest versions.html into every versioned dir
+          echo "$ALL_TAGS" | while read -r VER; do
+            cp site/versions.json "site/$VER/versions.json"
+            cp docs/versions.html "site/$VER/versions.html"
+          done
+
+          echo "Site structure (top-level):"
+          ls site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

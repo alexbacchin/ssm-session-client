@@ -108,7 +108,13 @@
   (function() {
     const versionsList = document.getElementById('versionsList');
 
-    // Fetch versions.json to get the list
+    // Derive the site root so links work whether this page is served from
+    // the root (/ssm-session-client/versions.html) or a versioned copy
+    // (/ssm-session-client/v1.2.2/versions.html).
+    const pathParts = window.location.pathname.replace(/\/$/, '').split('/');
+    const inVersionDir = /^v\d+/.test(pathParts[pathParts.length - 2]);
+    const siteRoot = inVersionDir ? '../' : './';
+
     fetch('versions.json')
       .then(r => r.json())
       .then(data => {
@@ -137,7 +143,7 @@
             ${sorted.map(v => `
               <li class="version-item${v === latest ? ' latest' : ''}">
                 <div>
-                  <a href="${v}/" class="version-link">${v}</a>
+                  <a href="${siteRoot}${v}/" class="version-link">${v}</a>
                   ${v === latest ? '<span class="version-badge">Latest</span>' : ''}
                 </div>
               </li>
