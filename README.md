@@ -12,8 +12,10 @@ Built for restricted environments (AppLocker, AirLock, Manage Engine) and comple
 - **VSCode Remote SSH** — Drop-in replacement for the SSH executable in VSCode Remote SSH, works on Windows without OpenSSH
 - **EC2 Instance Connect** — Ephemeral key authentication via IAM — no long-lived SSH keys to manage
 - **Port Forwarding** — Secure TCP tunnels to private instances with stream multiplexing for SSM agents v3.0.196.0+
+- **Remote Host Forwarding** — Tunnel through an instance to a remote host not directly accessible (`--host`)
 - **RDP** *(Windows)* — One-command Remote Desktop with optional password retrieval and clipboard integration
 - **Flexible Target Resolution** — Connect by instance ID, EC2 tag, private IP, DNS TXT record, or named alias
+- **Automatic Reconnection** — Transparently reconnects on WebSocket disconnection (configurable, default 5 attempts)
 - **VPC Endpoint Overrides** — Custom endpoints for STS, SSM, SSM Messages, EC2, and KMS (PrivateLink support)
 - **AWS SSO / Identity Center** — Automatic device-code browser login with cached token support
 - **Proxy Support** — HTTPS proxy for environments behind corporate proxies
@@ -25,14 +27,23 @@ Built for restricted environments (AppLocker, AirLock, Manage Engine) and comple
 3. Connect:
 
 ```shell
-# Shell session
+# Interactive shell session
 ssm-session-client shell i-0abc1234def56789
 
 # SSH direct (no external SSH client needed)
 ssm-session-client ssh-direct ec2-user@i-0abc1234def56789
 
-# Port forwarding
-ssm-session-client port-forwarding i-0abc1234def56789:443 8443
+# SSH via ProxyCommand (uses your system ssh binary)
+ssm-session-client ssh i-0abc1234def56789
+
+# Port forwarding — forward local port 2222 to SSH on the instance
+ssm-session-client port-forwarding i-0abc1234def56789 --remote-port 22 --local-port 2222
+
+# Port forwarding to a remote host reachable from the instance
+ssm-session-client port-forwarding i-0abc1234def56789 --remote-port 5432 --host db.internal
+
+# AWS SSO login
+ssm-session-client sso-login --aws-profile my-sso-profile
 ```
 
 ## Documentation
