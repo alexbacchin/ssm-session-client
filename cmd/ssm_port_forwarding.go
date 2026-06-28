@@ -41,6 +41,6 @@ func init() {
 	portForwardingCmd.Flags().IntVar(&portForwardingRemotePort, "remote-port", 0, "Port on the target instance (or --host) to connect to (required)")
 	portForwardingCmd.Flags().IntVar(&portForwardingLocalPort, "local-port", 0, "Local port to listen on (default: random)")
 	portForwardingCmd.Flags().StringVar(&portForwardingHost, "host", "", "Remote host reachable from the instance to forward to")
-	portForwardingCmd.Flags().IntVar(&config.Flags().PortForwardBps, "port-forward-bps", 56000, "Outbound rate limit in bytes/sec (0 = no limit); default matches the SSM agent 500 kbps session cap")
+	portForwardingCmd.Flags().IntVar(&config.Flags().PortForwardKbps, "port-forward-kbps", 1000, "Outbound rate limit in kbps (0 = no limit)")
 	rootCmd.AddCommand(portForwardingCmd)
 }
