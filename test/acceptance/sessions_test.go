@@ -171,9 +171,15 @@ func assertNoNewSessions(t *testing.T, instanceID string, before sessionSet) {
 	}
 	client := ssm.NewFromConfig(cfg)
 
-	intervals := []time.Duration{2, 3, 5, 5, 10, 10, 15, 15}
+	// intervals in seconds between polls; first entry is the initial delay before first check.
+	intervals := []int{5, 5, 10, 10, 15, 15, 20}
 	var leaked []string
-	for i, wait := range intervals {
+	for i, waitSec := range intervals {
+		select {
+		case <-ctx.Done():
+			break
+		case <-time.After(time.Duration(waitSec) * time.Second):
+		}
 		after := listActiveSessions(ctx, client, instanceID)
 		leaked = nil
 		for id := range after {
@@ -185,12 +191,7 @@ func assertNoNewSessions(t *testing.T, instanceID string, before sessionSet) {
 			return
 		}
 		if i < len(intervals)-1 {
-			t.Logf("session leak check: %d session(s) still active, retrying in %s...", len(leaked), wait)
-			select {
-			case <-ctx.Done():
-				break
-			case <-time.After(wait * time.Second):
-			}
+			t.Logf("session leak check: %d session(s) still active, will retry...", len(leaked))
 		}
 	}
 
