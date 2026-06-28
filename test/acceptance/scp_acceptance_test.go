@@ -34,6 +34,8 @@ func TestSCPUploadDownload(t *testing.T) {
 	i := infra(t)
 	waitForSSMReady(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
+	// LIFO: terminates any lingering ProxyCommand sessions before the leak check fires.
+	t.Cleanup(func() { terminateAllSessions(t, i.InstanceID) })
 
 	keyPath, pubKeyPath := generateTempKeyPair(t)
 	pushInstanceConnectKey(t, i, pubKeyPath)
@@ -67,6 +69,8 @@ func TestSCPProxyCommand(t *testing.T) {
 	i := infra(t)
 	waitForSSMReady(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
+	// LIFO: terminates any lingering ProxyCommand sessions before the leak check fires.
+	t.Cleanup(func() { terminateAllSessions(t, i.InstanceID) })
 
 	keyPath, pubKeyPath := generateTempKeyPair(t)
 	pushInstanceConnectKey(t, i, pubKeyPath)
