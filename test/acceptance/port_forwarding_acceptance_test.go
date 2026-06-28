@@ -253,6 +253,8 @@ func TestPortForwardingToRDPPort(t *testing.T) {
 	waitForSSMReady(t, i.WindowsInstanceID)
 	terminateAllSessions(t, i.WindowsInstanceID)
 	registerSessionLeakCheck(t, i.WindowsInstanceID)
+	// LIFO: explicitly terminate sessions before the leak check polls the API.
+	t.Cleanup(func() { terminateAllSessions(t, i.WindowsInstanceID) })
 
 	localPort := freePort(t)
 	winInfra := i
