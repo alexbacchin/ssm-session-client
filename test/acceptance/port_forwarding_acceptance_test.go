@@ -390,12 +390,15 @@ func TestPortForwardingToRemoteHost(t *testing.T) {
 	echoCtx, echoCancel := context.WithCancel(context.Background())
 	echoCmd := exec.CommandContext(echoCtx, binaryPath, echoStartCmd...) //nolint:gosec
 	if err := echoCmd.Start(); err != nil {
+		echoCancel()
 		t.Fatalf("start netcat listener: %v", err)
 	}
-	defer func() {
+	// Cleanup runs LIFO: this fires before registerSessionLeakCheck's cleanup,
+	// ensuring the shell session is terminated before the leak check runs.
+	t.Cleanup(func() {
 		echoCancel()
 		echoCmd.Wait() //nolint:errcheck
-	}()
+	})
 
 	// Give the server time to start listening
 	time.Sleep(2 * time.Second)
@@ -441,26 +444,28 @@ func TestPortForwardingToRemoteHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect to forwarded port %d: %v", localPort, err)
 	}
-	defer conn.Close()
 
 	// Send test data
 	testData := "test message from local client"
 	if _, err := conn.Write([]byte(testData)); err != nil {
+		conn.Close()
 		t.Fatalf("write to forwarded port: %v", err)
 	}
-
-	// Verify connection is established (netcat doesn't echo, but connection succeeds)
 	t.Logf("successfully forwarded to remote host 127.0.0.1:%d through instance %s", echoServerPort, i.InstanceID)
 
-	// Cleanup: send SIGINT for graceful shutdown
+	// Close the connection and stop the port-forwarder before returning so that
+	// both SSM sessions terminate before the leak check cleanup fires.
+	conn.Close()
 	if cmd.Process != nil {
 		cmd.Process.Signal(os.Interrupt) //nolint:errcheck
 	}
 	select {
 	case <-exited:
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		cancel()
+		<-exited
 	}
+	cancel()
 }
 
 // TestPortForwardingSCPUploadDownload tests SCP file upload and download tunnelled through
