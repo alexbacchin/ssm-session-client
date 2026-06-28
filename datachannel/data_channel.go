@@ -53,6 +53,17 @@ type SsmDataChannel struct {
 	lastRows        uint32
 	lastCols        uint32
 
+	// Data-phase inbound reordering (post-handshake Output stream). Unlike
+	// inMsgBuf (which is torn down when the handshake completes), this buffer
+	// stays active for the lifetime of the data stream so retransmitted or
+	// out-of-order frames during large transfers are reassembled in order
+	// rather than dropped.
+	dataMu        sync.Mutex
+	dataBuf       map[int64]*AgentMessage // seq -> message awaiting in-order delivery
+	dataSeqNum    int64                   // next expected data-stream sequence number
+	dataSeqInit   bool                    // whether dataSeqNum has been seeded
+	dataDelivered bool                    // whether any data payload has been delivered yet
+
 	// KMS encryption state
 	encryptionEnabled bool
 	encryptKey        []byte     // 32 bytes - for encrypting outbound data
@@ -350,37 +361,13 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 				payload = decrypted
 			}
 
-			// unbuffered - return payload directly
-			if c.inMsgBuf == nil {
-				// Discard duplicate/retransmitted messages to prevent
-				// data corruption in the output stream. The SSM agent may
-				// retransmit before our ack arrives under heavy traffic.
-				lastSeen := atomic.LoadInt64(&c.inSeqNum)
-				if m.SequenceNumber <= lastSeen && lastSeen > 0 {
-					if err := c.sendAcknowledgeMessage(m); err != nil {
-						zap.S().Warnf("failed to send acknowledge: %v", err)
-					}
-					return nil, nil
-				}
-				atomic.StoreInt64(&c.inSeqNum, m.SequenceNumber)
-				if err := c.sendAcknowledgeMessage(m); err != nil {
-					zap.S().Warnf("failed to send acknowledge: %v", err)
-				}
-				return payload, nil
-			}
-
-			// duplicate message - discard
-			if m.SequenceNumber < c.inSeqNum {
-				return nil, nil
-			}
-
-			// store decrypted payload back for buffered path
-			m.Payload = payload
-
-			// queue everything else
-			if err := c.inMsgBuf.Add(m); err != nil {
-				return nil, err
-			}
+			// Always reorder-buffer Output data so that retransmitted or
+			// briefly out-of-order frames (common on large transfers such as
+			// SCP/file copy) are delivered in sequence rather than dropped.
+			// A previous "unbuffered" fast-path discarded any frame with a
+			// sequence number <= the highest seen, which silently lost
+			// legitimately-new frames that arrived after a higher-seq frame.
+			return c.handleOutputData(m, payload)
 		case EncChallengeRequest:
 			if err := c.processEncryptionChallenge(m); err != nil {
 				return nil, fmt.Errorf("encryption challenge: %w", err)
@@ -396,8 +383,9 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 				// Do NOT nil handshakeCh here: WaitForHandshakeComplete detects
 				// completion via "case <-c.handshakeCh" and needs it non-nil.
 			}
-			// Switch to unbuffered mode so subsequent Output messages are
-			// delivered directly rather than queued waiting for seq=0.
+			// Tear down the handshake-phase buffers. Subsequent Output data
+			// is reassembled by handleOutputData, which keeps its own
+			// reorder buffer for the lifetime of the data stream.
 			c.inMsgBuf = nil
 			c.outMsgBuf = nil
 		default:
@@ -429,6 +417,68 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 	}
 
 	return c.processInboundQueue()
+}
+
+// handleOutputData reassembles the post-handshake Output data stream in sequence order.
+// Frames may arrive out of order or be retransmitted by the agent under load; rather than
+// dropping any frame whose sequence number is not strictly increasing (which silently lost
+// data on large transfers), it buffers gaps and delivers payloads contiguously.
+//
+// Every received frame is acknowledged — including duplicates — so the agent stops
+// retransmitting. The acknowledged payload bytes are returned for delivery to the caller
+// in strict sequence order.
+func (c *SsmDataChannel) handleOutputData(m *AgentMessage, payload []byte) ([]byte, error) {
+	// Always ack, even for duplicates/out-of-order frames, so the agent advances its window.
+	if err := c.sendAcknowledgeMessage(m); err != nil {
+		zap.S().Warnf("failed to send acknowledge for seq %d: %v", m.SequenceNumber, err)
+		return nil, err
+	}
+
+	c.dataMu.Lock()
+	defer c.dataMu.Unlock()
+
+	if c.dataBuf == nil {
+		c.dataBuf = make(map[int64]*AgentMessage)
+	}
+
+	// Seed the expected sequence number from the first data frame we observe.
+	// Until we have delivered anything, a lower sequence number than the seed is
+	// not a duplicate but an earlier frame that simply arrived out of order, so
+	// lower the watermark to include it. Once delivery has begun (dataDelivered),
+	// the watermark only moves forward and lower sequence numbers are duplicates.
+	if !c.dataSeqInit {
+		c.dataSeqNum = m.SequenceNumber
+		c.dataSeqInit = true
+	} else if m.SequenceNumber < c.dataSeqNum && !c.dataDelivered {
+		c.dataSeqNum = m.SequenceNumber
+	}
+
+	// Already-delivered frame (retransmission) — discard the payload, it's been seen.
+	if m.SequenceNumber < c.dataSeqNum {
+		return nil, nil
+	}
+
+	// Store the (already decrypted) payload keyed by sequence number.
+	stored := *m
+	stored.Payload = payload
+	c.dataBuf[m.SequenceNumber] = &stored
+
+	// Drain the contiguous run starting at the next expected sequence number.
+	out := new(bytes.Buffer)
+	for {
+		next, ok := c.dataBuf[c.dataSeqNum]
+		if !ok {
+			break
+		}
+		if _, err := out.Write(next.Payload); err != nil {
+			return out.Bytes(), err
+		}
+		delete(c.dataBuf, c.dataSeqNum)
+		c.dataSeqNum++
+		c.dataDelivered = true
+	}
+
+	return out.Bytes(), nil
 }
 
 // SetTerminalSize sends a message to the SSM service which indicates the size to use for the remote terminal

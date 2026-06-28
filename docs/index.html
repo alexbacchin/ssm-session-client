@@ -92,6 +92,7 @@
             <li><a href="#logs">Log Files</a></li>
             <li><a href="#debug">Debug Mode</a></li>
             <li><a href="#common-issues">Common Issues</a></li>
+            <li><a href="#large-file-transfers">Large File Transfers</a></li>
           </ul>
         </li>
         <li>
@@ -541,6 +542,7 @@ Get-AuthenticodeSignature .\ssm-session-client.exe
             <tr><td>Use Session Manager plugin</td><td><code>ssm-session-plugin</code></td><td><code>SSC_SSM_SESSION_PLUGIN</code></td><td>—</td></tr>
             <tr><td>Enable auto-reconnect</td><td><code>enable-reconnect</code></td><td><code>SSC_ENABLE_RECONNECT</code></td><td>—</td></tr>
             <tr><td>Max reconnection attempts</td><td><code>max-reconnects</code></td><td><code>SSC_MAX_RECONNECTS</code></td><td>—</td></tr>
+            <tr><td>Port-forward outbound rate limit (kbps; <code>0</code> = unlimited)</td><td><code>port-forward-kbps</code></td><td><code>SSC_PORT_FORWARD_KBPS</code></td><td>—</td></tr>
             <tr><td>Target aliases (config file only)</td><td><code>aliases</code></td><td>—</td><td>—</td></tr>
             <tr><td>Target alias (CLI flag, repeatable)</td><td><code>--alias name=tag:val</code></td><td>—</td><td>—</td></tr>
             <tr><td colspan="4" style="background:#f5f5f5;font-weight:600;padding:6px 12px;">ssh-direct options (nested under <code>ssh-direct:</code> in config file)</td></tr>
@@ -1039,6 +1041,7 @@ ssm-session-client port-forwarding devbox --remote-port 443 --local-port 8443</c
             <tr><td><code>--remote-port</code></td><td>Port on the instance (or <code>--host</code>) to forward to (required)</td><td><code>--remote-port 5432</code></td></tr>
             <tr><td><code>--host</code></td><td>Optional hostname or IP reachable from the instance to forward to instead of the instance itself</td><td><code>--host db.internal</code></td></tr>
             <tr><td><code>--local-port</code></td><td>Local listening port (omit for auto-assign)</td><td><code>--local-port 8888</code></td></tr>
+            <tr><td><code>--port-forward-kbps</code></td><td>Outbound rate limit in kbps for smux mode (agents ≥ 3.0.196.0). Default <code>1000</code> (1 Mbps); set to <code>0</code> to disable</td><td><code>--port-forward-kbps 0</code></td></tr>
           </tbody>
         </table>
       </div>
@@ -1055,6 +1058,26 @@ ssm-session-client port-forwarding devbox --remote-port 443 --local-port 8443</c
         keeps listening. Use <code>--enable-reconnect=false</code> to disable, or
         <code>--max-reconnects N</code> to limit attempts. See
         <a href="#config-reconnect">Automatic Reconnection</a> for details.
+      </div>
+      <div class="callout callout-tip">
+        <strong>Bandwidth limit and large file transfers:</strong> This applies to
+        <strong>smux mode only</strong> (SSM agents ≥ 3.0.196.0). The agent's smux receive
+        buffer (4 MB) fills within seconds if the client pushes data faster than the agent
+        can forward it — causing the session to be terminated mid-transfer with errors like
+        <em>Connection reset by peer</em> or <em>Broken pipe</em> during SCP/SFTP uploads
+        tunnelled through port-forwarding. The SSH protocol's built-in flow control handles
+        this correctly for <code>ssh</code> and <code>ssh-direct</code> commands, so the
+        flag has no effect there.
+        <br><br>
+        <code>--port-forward-kbps</code> throttles outbound data at the TCP stream level so
+        the agent's smux receive buffer never overflows. The default <code>1000</code> (1 Mbps)
+        is well above typical SSM throughput and transparent for interactive use. Lower it
+        (e.g. <code>450</code>) if you see buffer overflow errors during large SCP/SFTP
+        uploads over high-latency internet paths.
+        <br><br>
+        Set <code>--port-forward-kbps 0</code> to disable throttling entirely, for example
+        when using a PrivateLink endpoint with very low RTT where the smux buffer is
+        unlikely to fill.
       </div>
 
       <h3>Common use cases</h3>
@@ -1262,6 +1285,44 @@ SSC_AWS_PROFILE=my-sso-profile ssm-session-client sso-logout</code></pre>
         <li>For tag-based lookup, ensure the IAM credentials have <code>ec2:DescribeInstances</code>.</li>
         <li>For alias lookup, confirm the alias is defined in the config file or
           passed with <code>--alias</code>.</li>
+      </ul>
+
+      <h3 id="large-file-transfers">Large file transfers stall or fail</h3>
+      <p>
+        All SSM session traffic flows through a single WebSocket between your machine and
+        the SSM service, which relays it to the agent on the instance. The agent must
+        acknowledge each batch before more is accepted — on high-latency internet paths
+        this limits effective throughput to ~10–60 KB/s.
+      </p>
+      <p>
+        On the SSH ProxyCommand path (<code>ssh</code>), all SSH traffic — including
+        keepalives — shares this single pipe. If the agent is slow to acknowledge, the pipe
+        stalls and keepalives cannot get through, causing the SSH client to declare the
+        server unresponsive and drop the connection mid-transfer.
+      </p>
+      <p>
+        For files larger than ~10 MB, prefer one of these alternatives:
+      </p>
+      <ul>
+        <li>
+          <strong>Amazon S3 (recommended):</strong> Upload from your machine with
+          <code>aws s3 cp file.tar.gz s3://my-bucket/</code>, then download on the instance
+          via a shell session: <code>aws s3 cp s3://my-bucket/file.tar.gz /tmp/</code>.
+          This bypasses the SSM WebSocket entirely and is not subject to its throughput limits.
+        </li>
+        <li>
+          <strong>Port-forwarding + SCP (up to ~10 MB):</strong> Port-forwarding uses
+          stream multiplexing (smux) which isolates backpressure to the file transfer stream,
+          keeping session control traffic flowing independently. Rate limiting prevents
+          overwhelming the SSM agent during upload:
+<pre><code class="language-bash">ssm-session-client port-forwarding i-abc123 --remote-port 22 --local-port 2222 --port-forward-kbps 1000
+scp -P 2222 file.tar.gz ec2-user@localhost:/tmp/</code></pre>
+        </li>
+        <li>
+          <strong>SSH ProxyCommand + SCP (up to ~1 MB):</strong>
+          Works reliably for small to medium files. Larger transfers may stall due to
+          SSM WebSocket backpressure on this path.
+        </li>
       </ul>
 
     </section>

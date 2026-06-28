@@ -3,20 +3,22 @@
 package acceptance
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
-	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
 // TestPortForwardingToSSHPort forwards a local port to port 22 on the test instance and verifies
@@ -272,7 +274,7 @@ func TestPortForwardingToRDPPort(t *testing.T) {
 // It registers a t.Cleanup to send SIGINT for graceful shutdown.
 // The function blocks until the local TCP port is accepting connections, retrying the
 // entire subprocess if the handshake hangs or the process exits prematurely.
-func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int) {
+func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int, extraArgs ...string) {
 	t.Helper()
 	args := []string{
 		"--config", "/dev/null",
@@ -283,6 +285,7 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int)
 		"--remote-port", strconv.Itoa(remotePort),
 		"--local-port", strconv.Itoa(localPort),
 	}
+	args = append(args, extraArgs...)
 	// Note: --config and --log-level are also added by runCmd, but startPortForwarder
 	// uses exec.CommandContext directly, so these are needed here.
 
@@ -458,6 +461,114 @@ func TestPortForwardingToRemoteHost(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		cancel()
 	}
+}
+
+// TestPortForwardingSCPUploadDownload tests SCP file upload and download tunnelled through
+// port-forwarding (AWS-StartPortForwardingSession / smux). Unlike the SSH ProxyCommand path,
+// port-forwarding uses smux which lacks per-stream backpressure, so --port-forward-kbps is
+// used to prevent the agent's smux receive buffer from overflowing.
+func TestPortForwardingSCPUploadDownload(t *testing.T) {
+	scpBin, err := exec.LookPath("scp")
+	if err != nil {
+		t.Skip("scp binary not found on PATH; skipping port-forwarding SCP test")
+	}
+
+	i := infra(t)
+	waitForSSMReady(t, i.InstanceID)
+	terminateAllSessions(t, i.InstanceID)
+	registerSessionLeakCheck(t, i.InstanceID)
+
+	keyPath, pubKeyPath := generateTempKeyPair(t)
+	pushInstanceConnectKey(t, i, pubKeyPath)
+
+	localPort := freePort(t)
+	startPortForwarder(t, i, localPort, 22)
+
+	cases := []struct {
+		name string
+		size int
+	}{
+		{"small_4KB", 4 * 1024},
+		{"medium_64KB", 64 * 1024},
+		{"large_1MB", 1024 * 1024},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			runPortForwardingSCPTransferTest(t, scpBin, i, keyPath, pubKeyPath, localPort, tc.size)
+		})
+	}
+}
+
+// TestPortForwardingSCPLargeFileTransfer tests SCP of large files through port-forwarding.
+// Rate-limited to 450 kbps (≈ 90% of the SSM agent's 500 kbps smux cap) to prevent
+// the agent's smux receive buffer from overflowing during upload.
+func TestPortForwardingSCPLargeFileTransfer(t *testing.T) {
+	scpBin, err := exec.LookPath("scp")
+	if err != nil {
+		t.Skip("scp binary not found on PATH; skipping port-forwarding large SCP test")
+	}
+
+	i := infra(t)
+	waitForSSMReady(t, i.InstanceID)
+	terminateAllSessions(t, i.InstanceID)
+	registerSessionLeakCheck(t, i.InstanceID)
+
+	keyPath, pubKeyPath := generateTempKeyPair(t)
+	pushInstanceConnectKey(t, i, pubKeyPath)
+
+	localPort := freePort(t)
+	startPortForwarder(t, i, localPort, 22, "--port-forward-kbps=450")
+
+	t.Run("10MB", func(t *testing.T) {
+		runPortForwardingSCPTransferTestWithTimeout(t, scpBin, i, keyPath, pubKeyPath, localPort, 10*1024*1024, 5*time.Minute)
+	})
+}
+
+// runPortForwardingSCPTransferTest uploads and downloads a random file through a
+// port-forwarding tunnel and asserts byte-for-byte equality.
+func runPortForwardingSCPTransferTest(t *testing.T, scpBin string, i InfraOutputs, keyPath, pubKeyPath string, localPort, size int) {
+	t.Helper()
+	runPortForwardingSCPTransferTestWithTimeout(t, scpBin, i, keyPath, pubKeyPath, localPort, size, 90*time.Second)
+}
+
+func runPortForwardingSCPTransferTestWithTimeout(t *testing.T, scpBin string, i InfraOutputs, keyPath, pubKeyPath string, localPort, size int, timeout time.Duration) {
+	t.Helper()
+
+	dir := t.TempDir()
+	localFile := filepath.Join(dir, "upload.bin")
+	downloadFile := filepath.Join(dir, "download.bin")
+	remoteFile := fmt.Sprintf("/tmp/scp_pf_%d.bin", size)
+
+	wantData := randomBytes(t, size)
+	if err := os.WriteFile(localFile, wantData, 0o600); err != nil {
+		t.Fatalf("write upload file: %v", err)
+	}
+
+	sshOpts := []string{
+		"-i", keyPath,
+		"-o", fmt.Sprintf("Port=%d", localPort),
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=30",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=6",
+	}
+	remoteTarget := fmt.Sprintf("%s@localhost:%s", scpUser, remoteFile)
+
+	scpUpload(t, scpBin, timeout, append(sshOpts, localFile, remoteTarget)...)
+	pushInstanceConnectKey(t, i, pubKeyPath)
+	scpDownload(t, scpBin, timeout, append(sshOpts, remoteTarget, downloadFile)...)
+
+	gotData, err := os.ReadFile(downloadFile)
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+	if !bytes.Equal(gotData, wantData) {
+		t.Errorf("content mismatch: uploaded %d bytes, downloaded %d bytes", len(wantData), len(gotData))
+	}
+	t.Logf("port-forwarding SCP round-trip OK: %d bytes", size)
 }
 
 // portReady polls until a TCP connection to localhost:port succeeds, the deadline expires,
