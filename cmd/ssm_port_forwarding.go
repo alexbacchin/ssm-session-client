@@ -6,6 +6,7 @@ import (
 	"github.com/alexbacchin/ssm-session-client/config"
 	"github.com/alexbacchin/ssm-session-client/session"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -42,5 +43,8 @@ func init() {
 	portForwardingCmd.Flags().IntVar(&portForwardingLocalPort, "local-port", 0, "Local port to listen on (default: random)")
 	portForwardingCmd.Flags().StringVar(&portForwardingHost, "host", "", "Remote host reachable from the instance to forward to")
 	portForwardingCmd.Flags().IntVar(&config.Flags().PortForwardKbps, "port-forward-kbps", 1000, "Outbound rate limit in kbps (0 = no limit)")
+	// Without this binding, preRun's viper.Unmarshal would overwrite an explicit
+	// CLI flag with a config-file or SSC_ env value.
+	viper.BindPFlag("port-forward-kbps", portForwardingCmd.Flags().Lookup("port-forward-kbps"))
 	rootCmd.AddCommand(portForwardingCmd)
 }

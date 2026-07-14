@@ -29,17 +29,7 @@ func ProxyHttpClient() *awshttp.BuildableClient {
 	return client
 }
 func InitializeClient() {
-	if profile, ok := os.LookupEnv("AWS_PROFILE"); ok {
-		config.Flags().AWSProfile = profile
-	}
-
-	if region, ok := os.LookupEnv("AWS_DEFAULT_REGION"); ok {
-		config.Flags().AWSRegion = region
-	}
-
-	if region, ok := os.LookupEnv("AWS_REGION"); ok {
-		config.Flags().AWSRegion = region
-	}
+	applyAWSEnvFallbacks()
 	if config.Flags().AWSRegion == "" {
 		zap.S().Fatal("AWS Region is not set")
 		return
@@ -91,18 +81,43 @@ func InitializeClient() {
 	}
 }
 
+// applyAWSEnvFallbacks fills profile/region from the AWS-native environment variables
+// only when nothing set them yet (CLI flag, SSC_ env var, or config file). An explicit
+// --aws-profile/--aws-region must not be overridden by ambient environment.
+// AWS_REGION takes priority over the legacy AWS_DEFAULT_REGION, matching the SDK.
+func applyAWSEnvFallbacks() {
+	if config.Flags().AWSProfile == "" {
+		if profile, ok := os.LookupEnv("AWS_PROFILE"); ok {
+			config.Flags().AWSProfile = profile
+		}
+	}
+
+	if config.Flags().AWSRegion == "" {
+		if region, ok := os.LookupEnv("AWS_REGION"); ok {
+			config.Flags().AWSRegion = region
+		} else if region, ok := os.LookupEnv("AWS_DEFAULT_REGION"); ok {
+			config.Flags().AWSRegion = region
+		}
+	}
+}
+
+// sdkLogger routes AWS SDK log output through the zap logger.
+func sdkLogger() logging.Logger {
+	return logging.LoggerFunc(func(classification logging.Classification, format string, v ...interface{}) {
+		if classification == logging.Warn {
+			zap.S().Warnf(format, v...)
+		} else {
+			zap.S().Debugf(format, v...)
+		}
+	})
+}
+
 func BuildAWSConfig(ctx context.Context, service string) (aws.Config, error) {
 
 	var cfg aws.Config
 	var err error
 
-	logger := logging.LoggerFunc(func(classification logging.Classification, format string, v ...interface{}) {
-		if classification == logging.Warn {
-			zap.S().Warnf(format, v)
-		} else {
-			zap.S().Debugf(format, v)
-		}
-	})
+	logger := sdkLogger()
 
 	if config.Flags().AWSProfile != "" {
 		cfg, err = awsconfig.LoadDefaultConfig(ctx,
