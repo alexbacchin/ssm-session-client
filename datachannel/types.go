@@ -136,6 +136,16 @@ type EncryptionChallengeResponse struct {
 	Challenge []byte
 }
 
+// AcknowledgeContent is the payload of an Acknowledge message, identifying which
+// message is being acknowledged.
+// REF: https://github.com/aws/amazon-ssm-agent/blob/master/agent/session/contracts/model.go
+type AcknowledgeContent struct {
+	MessageType         MessageType `json:"AcknowledgedMessageType"`
+	MessageID           string      `json:"AcknowledgedMessageId"`
+	SequenceNumber      int64       `json:"AcknowledgedMessageSequenceNumber"`
+	IsSequentialMessage bool        `json:"IsSequentialMessage"`
+}
+
 // ChannelClosedPayload is the payload in a ChannelClosed message send from the agent.
 type ChannelClosedPayload struct {
 	MessageType   string
