@@ -5,6 +5,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
 	"github.com/aws/aws-sdk-go-v2/service/sso"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
+	oidctypes "github.com/aws/aws-sdk-go-v2/service/ssooidc/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/pkg/browser"
 	"go.uber.org/zap"
@@ -373,34 +375,23 @@ func ssoLoginFlow(
 		_, _ = fmt.Fprintf(urlWriter, "Open the following URL in your browser: %s\n", authUrl)
 	}
 
-	var createTokenErr error
-	token := new(ssooidc.CreateTokenOutput)
+	// Poll at the interval requested by the authorization server, if it provided one.
 	sleepPerCycle := 2 * time.Second
-	startTime := time.Now()
-	delta := time.Since(startTime)
-
-	for delta < loginTimeout {
-		// Keep trying until the user approves the request in the browser
-		token, createTokenErr = ssoOidcClient.CreateToken(
-			ctx, &ssooidc.CreateTokenInput{
-				ClientId:     registerClient.ClientId,
-				ClientSecret: registerClient.ClientSecret,
-				DeviceCode:   deviceAuth.DeviceCode,
-				GrantType:    aws.String("urn:ietf:params:oauth:grant-type:device_code"),
-			},
-		)
-		if createTokenErr == nil {
-			break
-		}
-		if strings.Contains(createTokenErr.Error(), "AuthorizationPendingException") {
-			time.Sleep(sleepPerCycle)
-			delta = time.Since(startTime)
-			continue
-		}
+	if deviceAuth.Interval > 0 {
+		sleepPerCycle = time.Duration(deviceAuth.Interval) * time.Second
 	}
-	// Checks to see if there is a valid token after the login timeout ends
+
+	token, createTokenErr := pollCreateToken(
+		ctx, ssoOidcClient, &ssooidc.CreateTokenInput{
+			ClientId:     registerClient.ClientId,
+			ClientSecret: registerClient.ClientSecret,
+			DeviceCode:   deviceAuth.DeviceCode,
+			GrantType:    aws.String("urn:ietf:params:oauth:grant-type:device_code"),
+		},
+		loginTimeout, sleepPerCycle,
+	)
 	if createTokenErr != nil || token.AccessToken == nil {
-		return nil, SsoOidcTokenCreationError{err}
+		return nil, SsoOidcTokenCreationError{createTokenErr}
 	}
 	cacheFile := cacheFileData{
 		StartUrl:              profile.ssoStartUrl,
@@ -413,6 +404,54 @@ func ssoLoginFlow(
 	}
 
 	return &cacheFile, nil
+}
+
+// createTokenAPI is the subset of the SSO OIDC client used by pollCreateToken.
+type createTokenAPI interface {
+	CreateToken(ctx context.Context, params *ssooidc.CreateTokenInput, optFns ...func(*ssooidc.Options)) (*ssooidc.CreateTokenOutput, error)
+}
+
+// pollCreateToken polls CreateToken until the user approves the device authorization
+// request, the timeout elapses, or a non-retryable error occurs. While authorization is
+// pending it sleeps for interval between attempts; a SlowDownException lengthens the
+// interval by 5 seconds, per RFC 8628 §3.5. The returned CreateTokenOutput is never nil.
+func pollCreateToken(
+	ctx context.Context,
+	client createTokenAPI,
+	in *ssooidc.CreateTokenInput,
+	timeout time.Duration,
+	interval time.Duration,
+) (*ssooidc.CreateTokenOutput, error) {
+	deadline := time.Now().Add(timeout)
+
+	for {
+		token, err := client.CreateToken(ctx, in)
+		if err == nil {
+			if token == nil {
+				token = new(ssooidc.CreateTokenOutput)
+			}
+			return token, nil
+		}
+
+		var pending *oidctypes.AuthorizationPendingException
+		var slowDown *oidctypes.SlowDownException
+		switch {
+		case errors.As(err, &pending):
+			// keep polling at the current interval
+		case errors.As(err, &slowDown):
+			interval += 5 * time.Second
+		default:
+			// invalid/expired device code, throttling other than slow_down, network
+			// failure, etc. — retrying cannot succeed, and looping without sleeping
+			// would hammer the endpoint
+			return new(ssooidc.CreateTokenOutput), err
+		}
+
+		if time.Now().Add(interval).After(deadline) {
+			return new(ssooidc.CreateTokenOutput), err
+		}
+		time.Sleep(interval)
+	}
 }
 
 func getCallerID(ctx context.Context) (*sts.GetCallerIdentityOutput, error) {
