@@ -24,6 +24,21 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	// outMsgBufferCap bounds the number of unacknowledged outbound messages that may be
+	// in flight; WriteMsg blocks once the window is full, providing backpressure to
+	// callers (e.g. io.Copy from stdin) until the agent acknowledges earlier messages.
+	// At ~1.5KB per message this is roughly a 1.5MB window.
+	outMsgBufferCap = 1000
+
+	// resendInterval is how often the resend scheduler inspects the oldest
+	// unacknowledged message; retransmissionTimeout is how long that message may
+	// remain at the front of the queue before it is retransmitted. These match the
+	// AWS session-manager-plugin reference client.
+	resendInterval        = 100 * time.Millisecond
+	retransmissionTimeout = 200 * time.Millisecond
+)
+
 // DataChannel is the interface definition for handling communication with the AWS SSM messaging service.
 type DataChannel interface {
 	Open(aws.Config, *ssm.StartSessionInput, *SSMMessagesResover) error
@@ -41,17 +56,18 @@ type DataChannel interface {
 // SsmDataChannel represents the data channel of the websocket connection used to communicate with the AWS
 // SSM service.  A new(SsmDataChannel) is ready for use, and should immediately call the Open() method.
 type SsmDataChannel struct {
-	seqNum          int64
-	inSeqNum        int64
-	mu              sync.Mutex
-	ws              *websocket.Conn
-	synSent         bool
-	handshakeCh     chan bool
-	pausePub        bool
-	outMsgBuf       MessageBuffer
-	inMsgBuf        MessageBuffer
-	lastRows        uint32
-	lastCols        uint32
+	seqNum      int64
+	inSeqNum    int64
+	mu          sync.Mutex
+	ws          *websocket.Conn
+	synSent     bool
+	handshakeCh chan bool
+	outMsgBuf   MessageBuffer
+	inMsgBuf    MessageBuffer
+	lastRows    uint32
+	lastCols    uint32
+	done        chan struct{}
+	closeOnce   sync.Once
 
 	// Data-phase inbound reordering (post-handshake Output stream). Unlike
 	// inMsgBuf (which is torn down when the handshake completes), this buffer
@@ -102,7 +118,8 @@ func StreamEndpointOverride(resolver *SSMMessagesResover, output *ssm.StartSessi
 // Open creates the web socket connection with the AWS service and opens the data channel.
 func (c *SsmDataChannel) Open(cfg aws.Config, in *ssm.StartSessionInput, resolver *SSMMessagesResover) error {
 	c.handshakeCh = make(chan bool, 1)
-	c.outMsgBuf = NewMessageBuffer(50)
+	c.done = make(chan struct{})
+	c.outMsgBuf = NewMessageBuffer(outMsgBufferCap)
 	c.inMsgBuf = NewMessageBuffer(50)
 	c.cfg = cfg
 	if in.Target != nil {
@@ -118,9 +135,18 @@ func (c *SsmDataChannel) Open(cfg aws.Config, in *ssm.StartSessionInput, resolve
 // TerminateSession for port forwarding should be handled before calling Close().
 func (c *SsmDataChannel) Close() error {
 	var err error
-	if c.ws != nil {
-		err = c.ws.Close()
-	}
+	c.closeOnce.Do(func() {
+		if c.done != nil {
+			close(c.done)
+		}
+		if c.outMsgBuf != nil {
+			// wake any writer blocked on a full outbound window
+			c.outMsgBuf.Close()
+		}
+		if c.ws != nil {
+			err = c.ws.Close()
+		}
+	})
 	return err
 }
 
@@ -136,15 +162,16 @@ func (c *SsmDataChannel) WaitForHandshakeComplete(ctx context.Context) error {
 	for {
 		select {
 		case <-c.handshakeCh:
-			// make stream unbuffered
+			// Tear down only the inbound handshake buffer; post-handshake Output data is
+			// reassembled by handleOutputData's own reorder buffer. The outbound buffer
+			// (outMsgBuf) must stay alive for the whole session so unacknowledged data
+			// messages can be retransmitted by processOutboundQueue.
 			c.inMsgBuf = nil
-			c.outMsgBuf = nil
 			c.handshakeCh = nil
 			zap.S().Debug("handshake complete")
 			return nil
 		case <-ctx.Done():
 			c.inMsgBuf = nil
-			c.outMsgBuf = nil
 			c.handshakeCh = nil
 			return context.Canceled
 		default:
@@ -288,14 +315,19 @@ func (c *SsmDataChannel) Write(payload []byte) (int, error) {
 // This is provided as a convenience so that messages types not already handled can be sent. If the message
 // SequenceNumber field is less than 0, it will be automatically incremented using the internal counter.
 func (c *SsmDataChannel) WriteMsg(msg *AgentMessage) (int, error) {
-	// Only set the SYN flag on the first non-Acknowledge message.
-	// Acks (e.g. for StartPublication) must keep their Ack flag — Windows SSM agents
-	// reject SYN-flagged acks and the handshake stalls.
+	// Phase 1: sequence/flag decisions under the mutex. Only set the SYN flag on the
+	// first non-Acknowledge message. Acks (e.g. for StartPublication) must keep their
+	// Ack flag — Windows SSM agents reject SYN-flagged acks and the handshake stalls.
+	c.mu.Lock()
 	if !c.synSent && msg.MessageType != Acknowledge {
 		atomic.StoreInt64(&c.seqNum, 0)
 		msg.Flags = Syn
-		msg.SequenceNumber = c.seqNum
+		msg.SequenceNumber = 0
 	}
+	if msg.MessageType != Acknowledge {
+		c.synSent = true
+	}
+	c.mu.Unlock()
 
 	if msg.SequenceNumber < 0 {
 		atomic.StoreInt64(&c.seqNum, 1)
@@ -309,20 +341,23 @@ func (c *SsmDataChannel) WriteMsg(msg *AgentMessage) (int, error) {
 		return 0, err
 	}
 
+	// Phase 2: retain a copy for retransmission until the agent acknowledges it.
+	// The payload is cloned because callers (notably ReadFrom) reuse their read
+	// buffer, which would otherwise corrupt any later retransmit. AddWait blocks
+	// when the in-flight window is full, applying backpressure to the producer;
+	// it returns ErrBufferClosed once the channel is shut down.
+	if c.outMsgBuf != nil && msg.MessageType != Acknowledge && msg.PayloadType != HandshakeResponse {
+		buffered := *msg
+		buffered.Payload = append([]byte(nil), msg.Payload...)
+		if aerr := c.outMsgBuf.AddWait(&buffered); aerr != nil {
+			return 0, aerr
+		}
+	}
+
+	// Phase 3: serialized websocket write.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if msg.MessageType != Acknowledge {
-		c.synSent = true
-	}
-
-	if c.outMsgBuf != nil && msg.MessageType != Acknowledge && msg.PayloadType != HandshakeResponse {
-		err = c.outMsgBuf.Add(msg)
-	}
-
-	if !c.pausePub {
-		return int(msg.payloadLength), c.ws.WriteMessage(websocket.BinaryMessage, data)
-	}
-	return int(msg.payloadLength), err
+	return int(msg.payloadLength), c.ws.WriteMessage(websocket.BinaryMessage, data)
 }
 
 // HandleMsg takes the unprocessed message bytes from the websocket connection (a la Read()), unmarshals the data
@@ -343,12 +378,24 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 	switch m.MessageType {
 	case Acknowledge:
 		if c.outMsgBuf != nil {
-			c.outMsgBuf.Remove(m.SequenceNumber)
+			// The acknowledged sequence number is carried in the payload; the header
+			// sequence number is not guaranteed to match it. Fall back to the header
+			// for peers that don't populate the payload.
+			var ack AcknowledgeContent
+			if jerr := json.Unmarshal(m.Payload, &ack); jerr == nil && ack.MessageType != "" {
+				c.outMsgBuf.Remove(ack.SequenceNumber)
+			} else {
+				c.outMsgBuf.Remove(m.SequenceNumber)
+			}
 		}
-	case PausePublication:
-		c.pausePub = true
-	case StartPublication:
-		c.pausePub = false
+		// acknowledge messages are never acknowledged back
+		return nil, nil
+	case PausePublication, StartPublication:
+		// The reference session-manager-plugin client ignores these: reliability is
+		// provided by acknowledgement + retransmission, not by the client pausing.
+		// Honoring the pause by dropping or withholding writes loses data.
+		zap.S().Debugf("ignoring %s seq=%d", m.MessageType, m.SequenceNumber)
+		return nil, nil
 	case OutputStreamData:
 		switch m.PayloadType {
 		case Output:
@@ -383,11 +430,11 @@ func (c *SsmDataChannel) HandleMsg(data []byte) ([]byte, error) {
 				// Do NOT nil handshakeCh here: WaitForHandshakeComplete detects
 				// completion via "case <-c.handshakeCh" and needs it non-nil.
 			}
-			// Tear down the handshake-phase buffers. Subsequent Output data
+			// Tear down the inbound handshake buffer. Subsequent Output data
 			// is reassembled by handleOutputData, which keeps its own
-			// reorder buffer for the lifetime of the data stream.
+			// reorder buffer for the lifetime of the data stream. The outbound
+			// buffer stays alive so data messages remain retransmittable.
 			c.inMsgBuf = nil
-			c.outMsgBuf = nil
 		default:
 			zap.S().Debugf("ignoring unknown payload type %d for OutputStreamData seq=%d", m.PayloadType, m.SequenceNumber)
 		}
@@ -575,41 +622,67 @@ func (c *SsmDataChannel) processInboundQueue() ([]byte, error) {
 	return data.Bytes(), err
 }
 
+// processOutboundQueue retransmits unacknowledged outbound messages. Matching the AWS
+// session-manager-plugin reference client, it only ever considers the oldest
+// unacknowledged message: if the same message has been at the front of the queue for
+// longer than retransmissionTimeout it is resent. Acknowledged messages are removed by
+// HandleMsg, which advances the front. Runs until Close.
 func (c *SsmDataChannel) processOutboundQueue() {
-	backoff := 500 * time.Millisecond
-	const (
-		minBackoff = 500 * time.Millisecond
-		maxBackoff = 30 * time.Second
-	)
+	if c.outMsgBuf == nil {
+		return
+	}
+
+	ticker := time.NewTicker(resendInterval)
+	defer ticker.Stop()
+
+	var frontSeq int64
+	var frontSince time.Time
+	haveFront := false
 
 	for {
-		time.Sleep(backoff)
-		if c.pausePub {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+		}
+
+		m := c.outMsgBuf.Front()
+		if m == nil {
+			haveFront = false
 			continue
 		}
 
-		if c.outMsgBuf == nil {
-			return
+		if !haveFront || m.SequenceNumber != frontSeq {
+			haveFront = true
+			frontSeq = m.SequenceNumber
+			frontSince = time.Now()
+			continue
 		}
 
-		hasMessages := false
-		for m := c.outMsgBuf.Next(); m != nil; m = c.outMsgBuf.Next() {
-			hasMessages = true
-			if _, err := c.WriteMsg(m); err != nil {
+		if time.Since(frontSince) >= retransmissionTimeout {
+			zap.S().Debugf("retransmitting unacknowledged message seq=%d", m.SequenceNumber)
+			if err := c.resendMsg(m); err != nil {
 				zap.S().Warnf("failed to retransmit message seq %d: %v", m.SequenceNumber, err)
 			}
-		}
-
-		// Exponential backoff: double when messages are pending, reset when queue is empty
-		if hasMessages {
-			backoff = backoff * 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-		} else {
-			backoff = minBackoff
+			frontSince = time.Now()
 		}
 	}
+}
+
+// resendMsg writes an already-buffered message back to the websocket without
+// re-entering WriteMsg (which would re-buffer it).
+func (c *SsmDataChannel) resendMsg(m *AgentMessage) error {
+	data, err := m.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ws == nil {
+		return errors.New("connection closed")
+	}
+	return c.ws.WriteMessage(websocket.BinaryMessage, data)
 }
 
 // sendAcknowledgeMessage sends the Acknowledge message type for each incoming message read from
@@ -618,11 +691,11 @@ func (c *SsmDataChannel) sendAcknowledgeMessage(msg *AgentMessage) error {
 	zap.S().Debugf("sendAck: for type=%s seq=%d msgId=%s",
 		msg.MessageType, msg.SequenceNumber, msg.messageID.String())
 
-	ack := map[string]interface{}{
-		"AcknowledgedMessageType":           msg.MessageType,
-		"AcknowledgedMessageId":             msg.messageID.String(),
-		"AcknowledgedMessageSequenceNumber": msg.SequenceNumber,
-		"IsSequentialMessage":               true,
+	ack := AcknowledgeContent{
+		MessageType:         msg.MessageType,
+		MessageID:           msg.messageID.String(),
+		SequenceNumber:      msg.SequenceNumber,
+		IsSequentialMessage: true,
 	}
 
 	payload, err := json.Marshal(ack)
