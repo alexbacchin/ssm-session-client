@@ -229,6 +229,7 @@ jobs:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: create-release
     runs-on: ubuntu-latest
+    if: always() && needs.create-release.result == 'success'
     strategy:
       matrix:
         goos: [linux, darwin]
@@ -260,6 +261,7 @@ jobs:
     name: Build linux/arm${{ matrix.goarm }}
     needs: create-release
     runs-on: ubuntu-latest
+    if: always() && needs.create-release.result == 'success'
     strategy:
       matrix:
         goarm: ["6", "7"]
@@ -288,6 +290,7 @@ jobs:
     name: Build windows/${{ matrix.goarch }} (signed)
     needs: create-release
     runs-on: ubuntu-latest
+    if: always() && needs.create-release.result == 'success'
     strategy:
       matrix:
         goarch: [amd64, arm64]
@@ -370,6 +373,11 @@ jobs:
     name: Trigger documentation deployment
     needs: [release-binaries, release-binaries-arm, release-windows-signed]
     runs-on: ubuntu-latest
+    if: >-
+      always() &&
+      needs.release-binaries.result == 'success' &&
+      needs.release-binaries-arm.result == 'success' &&
+      needs.release-windows-signed.result == 'success'
     permissions:
       actions: write
     steps:
