@@ -3,6 +3,8 @@
 package acceptance
 
 import (
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -11,30 +13,32 @@ import (
 const resolverTimeout = 90 * time.Second
 
 // TestResolveByTag verifies the tag-resolver strategy against the real EC2 API.
-// Uses the shell command because ssh-direct's user@host[:port] target format
-// conflicts with the tag Key:Value format. The shell command passes the raw
-// target to ResolveTarget which handles tags correctly.
-// We verify that the process does NOT fail with a resolution error.
+// Uses port-forwarding (rather than shell) because ssh-direct's user@host[:port]
+// target format conflicts with the tag Key:Value format, while port-forwarding
+// takes the raw target and passes it straight to ResolveTarget, and — unlike
+// shell — doesn't need a TTY to fully establish a session. A real TCP connection
+// through the tunnel proves resolution actually located the right instance,
+// rather than just checking stderr for the absence of failure strings.
 func TestResolveByTag(t *testing.T) {
 	i := infra(t)
 	waitForSSMReady(t, i.InstanceID)
-	// The shell command in non-TTY mode doesn't cleanly terminate SSM sessions,
-	// so we skip the leak checker and clean up sessions after the test instead.
-	t.Cleanup(func() { terminateAllSessions(t, i.InstanceID) })
+	terminateAllSessions(t, i.InstanceID)
+	registerSessionLeakCheck(t, i.InstanceID)
 
 	target := i.AliasTagKey + ":" + i.AliasTagValue
-	_, stderr, code := runCmd(t, resolverTimeout, "shell", target)
-	// The shell command will likely fail because stdin is not a TTY, but that's OK.
-	// We only care that target resolution succeeded (no resolution error in stderr).
-	if code != 0 {
-		lower := strings.ToLower(stderr)
-		if strings.Contains(lower, "no instances") || strings.Contains(lower, "could not resolve") ||
-			strings.Contains(lower, "not found") {
-			t.Fatalf("tag resolver failed: %s", stderr)
-		}
-		// Non-zero exit from TTY/session issue is acceptable — resolution worked.
-		t.Logf("shell exited %d (expected for non-TTY stdin); stderr: %s", code, stderr)
+	localPort := freePort(t)
+	startPortForwarderToTarget(t, i, target, nil, localPort, 22)
+
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", localPort), 5*time.Second)
+	if err != nil {
+		t.Fatalf("tag resolver: connect to forwarded port %d: %v", localPort, err)
 	}
+	buf := make([]byte, 256)
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if n, _ := conn.Read(buf); n > 0 {
+		t.Logf("SSH banner: %s", strings.TrimSpace(string(buf[:n])))
+	}
+	conn.Close()
 }
 
 // TestResolveByIP verifies the IP-resolver strategy against the real EC2 API.

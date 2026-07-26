@@ -276,15 +276,26 @@ func TestPortForwardingToRDPPort(t *testing.T) {
 // entire subprocess if the handshake hangs or the process exits prematurely.
 func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int, extraArgs ...string) {
 	t.Helper()
+	startPortForwarderToTarget(t, i, i.InstanceID, nil, localPort, remotePort, extraArgs...)
+}
+
+// startPortForwarderToTarget is like startPortForwarder but resolves an arbitrary target
+// string (e.g. a tag "Key:Value" or an alias name) instead of always using the instance
+// ID, and allows extra global flags (e.g. --alias) to be inserted before the subcommand.
+func startPortForwarderToTarget(t *testing.T, i InfraOutputs, target string, globalArgs []string, localPort, remotePort int, extraArgs ...string) {
+	t.Helper()
 	args := []string{
 		"--config", "/dev/null",
 		"--log-level", "debug",
 		"--aws-region", i.AWSRegion,
 		"--enable-reconnect=false",
-		"port-forwarding", i.InstanceID,
+	}
+	args = append(args, globalArgs...)
+	args = append(args,
+		"port-forwarding", target,
 		"--remote-port", strconv.Itoa(remotePort),
 		"--local-port", strconv.Itoa(localPort),
-	}
+	)
 	args = append(args, extraArgs...)
 	// Note: --config and --log-level are also added by runCmd, but startPortForwarder
 	// uses exec.CommandContext directly, so these are needed here.
