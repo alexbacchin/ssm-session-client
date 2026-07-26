@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Rules
+
+- Do not push directly to the `main` branch. Always use a feature or fix branch and open a pull request.
+- Do not force push to `main` under any circumstances.
+
 ## Project Overview
 
 `ssm-session-client` is a Go CLI tool providing AWS SSM Session Manager access in a single self-contained binary. It supports shell sessions, SSH proxy/direct, EC2 Instance Connect, port forwarding, and RDP — useful in restricted environments (AppLocker, AirLock) and complex VPN/Direct Connect networks where AWS PrivateLink endpoints are accessible only from private networks.
@@ -69,6 +74,24 @@ VPC endpoint overrides are supported for STS, SSM, SSM Messages, EC2, and KMS to
 - Max cognitive/cyclomatic complexity: 15
 - Max line length: 132 characters
 - Key enabled linters: `errcheck`, `gosec`, `funlen`, `gocognit`, `gocyclo`, `revive`, `bodyclose`
+
+## Acceptance Testing
+
+Acceptance tests provision real AWS infrastructure via the `test/scripts/Makefile` lifecycle (see `test/infra/` and `test/acceptance/`, build tag `acceptance`).
+
+Run against the `sandbox` AWS profile in `ap-southeast-2`:
+
+```bash
+export AWS_PROFILE=sandbox
+export AWS_REGION=ap-southeast-2
+
+make -C test/scripts acceptance-prepare
+make -C test/scripts acceptance-run-local
+# after all tests have completed:
+make -C test/scripts acceptance-destroy
+```
+
+`acceptance-destroy` must always be run after `acceptance-run-local`, even if the tests fail, to avoid leaving AWS infrastructure running.
 
 ## Documentation Website
 
