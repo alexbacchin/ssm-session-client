@@ -1,6 +1,7 @@
 package session
 
 import (
+	"os"
 	"testing"
 
 	"github.com/alexbacchin/ssm-session-client/config"
@@ -60,6 +61,10 @@ func TestApplyAWSEnvFallbacks_EnvFillsUnset(t *testing.T) {
 
 func TestApplyAWSEnvFallbacks_DefaultRegionFallback(t *testing.T) {
 	saveFlags(t)
+	if orig, ok := os.LookupEnv("AWS_REGION"); ok {
+		os.Unsetenv("AWS_REGION")
+		t.Cleanup(func() { os.Setenv("AWS_REGION", orig) })
+	}
 	t.Setenv("AWS_DEFAULT_REGION", "eu-west-1")
 	config.Flags().AWSRegion = ""
 
