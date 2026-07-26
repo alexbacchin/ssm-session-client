@@ -367,23 +367,49 @@ func startPortForwarder(t *testing.T, i InfraOutputs, localPort, remotePort int,
 }
 
 // TestPortForwardingToRemoteHost verifies port forwarding to a remote host accessible from the target instance.
-// This uses the --host flag to forward through the instance to localhost:9999 (a service running on the instance).
-// The test starts a netcat listener on port 9999 and verifies that connections through the tunnel reach it.
+// This uses the --host flag to forward through the instance to its private IP on port 9999 (a service running
+// on the instance). The test starts a listener on port 9999 and verifies that connections through the tunnel reach it.
 func TestPortForwardingToRemoteHost(t *testing.T) {
 	i := infra(t)
 	waitForSSMReady(t, i.InstanceID)
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
-	// Start a netcat listener on the instance listening on 127.0.0.1:9999
+	// Start a listener on the instance bound to its private IP on port 9999. AWS
+	// SSM rejects AWS-StartPortForwardingSessionToRemoteHost requests targeting
+	// 127.0.0.1 ("Forwarding to IP address 127.0.0.1 is forbidden"), so the
+	// listener must bind to (and be forwarded to) the instance's actual private
+	// IP rather than loopback. AL2023's minimal image ships neither nc nor ncat,
+	// so use a one-line Python TCP server instead (python3 is present on the
+	// base AMI). shell has no --exec flag, so use ssh-direct (as the other
+	// background-exec acceptance tests do) to run the command non-interactively.
+	//
+	// The listener accepts in a loop rather than once: the port-forwarding
+	// connection is proxied end-to-end as soon as it's accepted locally, so
+	// portReady's readiness probe (which opens and immediately closes a
+	// connection) already consumes one remote accept() before the real
+	// connection arrives. A single-shot listener would exit after the probe
+	// and refuse/reset the real connection that follows.
+	if i.InstancePrivateIP == "" {
+		t.Skip("instance_private_ip not set in infra outputs")
+	}
 	echoServerPort := 9999
+	echoTarget := fmt.Sprintf("%s@%s", sshDirectUser, i.InstanceID)
+	pythonListener := fmt.Sprintf(
+		`python3 -c "import socketserver;`+
+			`h=type('H',(socketserver.BaseRequestHandler,),{'handle':lambda self:self.request.recv(4096)});`+
+			`socketserver.TCPServer.allow_reuse_address=True;`+
+			`socketserver.TCPServer(('%s',%d),h).serve_forever()"`,
+		i.InstancePrivateIP, echoServerPort,
+	)
 	echoStartCmd := []string{
 		"--config", "/dev/null",
 		"--log-level", "info",
 		"--aws-region", i.AWSRegion,
 		"--enable-reconnect=false",
-		"shell", i.InstanceID,
-		"--exec", fmt.Sprintf("nc -l 127.0.0.1 %d", echoServerPort),
+		"ssh-direct", "--instance-connect", "--no-host-key-check",
+		"--exec", pythonListener,
+		echoTarget,
 	}
 
 	// Start the server in the background (non-blocking)
@@ -391,7 +417,7 @@ func TestPortForwardingToRemoteHost(t *testing.T) {
 	echoCmd := exec.CommandContext(echoCtx, binaryPath, echoStartCmd...) //nolint:gosec
 	if err := echoCmd.Start(); err != nil {
 		echoCancel()
-		t.Fatalf("start netcat listener: %v", err)
+		t.Fatalf("start remote listener: %v", err)
 	}
 	t.Cleanup(func() {
 		echoCancel()
@@ -401,7 +427,7 @@ func TestPortForwardingToRemoteHost(t *testing.T) {
 	// Give the server time to start listening
 	time.Sleep(2 * time.Second)
 
-	// Set up port forwarding to the remote host (localhost:9999 on the instance) via --host flag
+	// Set up port forwarding to the remote host (instance's private IP:9999) via --host flag
 	localPort := freePort(t)
 	args := []string{
 		"--config", "/dev/null",
@@ -411,7 +437,7 @@ func TestPortForwardingToRemoteHost(t *testing.T) {
 		"port-forwarding", i.InstanceID,
 		"--remote-port", strconv.Itoa(echoServerPort),
 		"--local-port", strconv.Itoa(localPort),
-		"--host", "127.0.0.1",
+		"--host", i.InstancePrivateIP,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -449,7 +475,7 @@ func TestPortForwardingToRemoteHost(t *testing.T) {
 		conn.Close()
 		t.Fatalf("write to forwarded port: %v", err)
 	}
-	t.Logf("successfully forwarded to remote host 127.0.0.1:%d through instance %s", echoServerPort, i.InstanceID)
+	t.Logf("successfully forwarded to remote host %s:%d through instance %s", i.InstancePrivateIP, echoServerPort, i.InstanceID)
 
 	// Close the connection and stop the port-forwarder before returning so that
 	// both SSM sessions terminate before the leak check cleanup fires.
