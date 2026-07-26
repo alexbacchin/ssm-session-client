@@ -226,15 +226,17 @@ func TestHandleMsg_PausePublication(t *testing.T) {
 		t.Fatalf("HandleMsg() error: %v", err)
 	}
 
-	if !c.pausePub {
-		t.Error("pausePub should be true after PausePublication")
+	// pause_publication must not stop the client from sending: reliability comes
+	// from ack+retransmit, and honoring the pause silently dropped data.
+	c.synSent = true
+	if _, err := c.Write([]byte("written-during-pause")); err != nil {
+		t.Errorf("Write() after PausePublication error: %v", err)
 	}
 }
 
 func TestHandleMsg_StartPublication(t *testing.T) {
 	c, cleanup := newTestWSChannel(t)
 	defer cleanup()
-	c.pausePub = true
 
 	msg := NewAgentMessage()
 	msg.MessageType = StartPublication
@@ -251,10 +253,6 @@ func TestHandleMsg_StartPublication(t *testing.T) {
 	_, err = c.HandleMsg(data)
 	if err != nil {
 		t.Fatalf("HandleMsg() error: %v", err)
-	}
-
-	if c.pausePub {
-		t.Error("pausePub should be false after StartPublication")
 	}
 }
 
