@@ -146,6 +146,7 @@ jobs:
     name: Create GitHub release
     needs: create-tag
     runs-on: ubuntu-latest
+    if: always() && needs.create-tag.result == 'success'
     steps:
       - uses: actions/checkout@v7
         with:
