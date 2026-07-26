@@ -154,6 +154,8 @@ jobs:
 
       - name: Generate changelog
         id: changelog
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ github.event.inputs.version }}"
           IS_PRERELEASE=false
@@ -171,7 +173,14 @@ jobs:
             echo "body=Initial release" >> "$GITHUB_OUTPUT"
           else
             LOG=$(git log --no-merges --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" -- . ':!test/')
-            CONTRIBUTORS=$(git log --no-merges --pretty=format:"%an" "${PREV_TAG}..HEAD" -- . ':!test/' | sort -u | sed 's/^/- /')
+
+            CONTRIBUTORS=$(
+              git log --no-merges --pretty=format:"%H" "${PREV_TAG}..HEAD" -- . ':!test/' | \
+              while read -r sha; do
+                gh api "repos/${{ github.repository }}/commits/${sha}" --jq '.author.login // empty'
+              done | grep -v '^$' | sort -u | sed 's/^/- @/'
+            )
+
             {
               echo "body<<CHANGELOG_EOF"
               echo "## Changes since ${PREV_TAG}"
