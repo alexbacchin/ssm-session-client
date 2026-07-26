@@ -1325,6 +1325,38 @@ scp -P 2222 file.tar.gz ec2-user@localhost:/tmp/</code></pre>
         </li>
       </ul>
 
+      <h3 id="port-forward-kbps">Why <code>--port-forward-kbps</code> exists</h3>
+      <p>
+        Multiplexed port forwarding uses <a href="https://github.com/xtaci/smux" target="_blank" rel="noopener">smux</a>
+        to run multiple TCP connections over one SSM session. The smux protocol has two
+        wire versions: v1, with no flow control, and v2, which adds per-stream flow control
+        via acknowledgement frames. <code>ssm-session-client</code> and the AWS-managed
+        <code>session-manager-plugin</code>/SSM Agent must agree on the protocol version, and
+        as of this writing the AWS side only negotiates smux v1 — it constructs its session
+        with the library's unmodified default config, which is v1. This isn't tied to a
+        specific SSM Agent version; every current agent speaks v1 only, so
+        <code>ssm-session-client</code> cannot unilaterally switch to v2.
+      </p>
+      <p>
+        Without v2's flow control, an unthrottled multiplexed stream can write data faster
+        than the SSM Agent's session-wide cap (roughly 500 kbps) can drain it. When that
+        happens the smux receive buffer fills, backpressure stalls the WebSocket reader, the
+        agent stops receiving acknowledgements, and it eventually terminates the session
+        mid-transfer. <code>--port-forward-kbps</code> (default 1000, <code>0</code> disables
+        it) paces outbound writes on each forwarded stream to stay under that cap and avoid
+        the stall.
+      </p>
+      <p>
+        AWS's own <code>session-manager-plugin</code> works around the same v1 limitation
+        internally: its client&rarr;agent bridge loop sleeps for 1 ms after every read/send
+        cycle, capping aggregate throughput to a fixed, hardcoded rate. It isn't user
+        configurable and doesn't provide per-stream fairness — it just keeps the shared pipe
+        under the agent's cap. <code>--port-forward-kbps</code> is the same category of
+        workaround, made tunable instead of fixed. The only real fix would be smux v2
+        support landing in AWS's <code>session-manager-plugin</code>/Agent; until then, this
+        flag isn't removable.
+      </p>
+
     </section>
 
     <!-- ============================================================

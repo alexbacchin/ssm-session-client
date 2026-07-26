@@ -154,6 +154,8 @@ jobs:
 
       - name: Generate changelog
         id: changelog
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ github.event.inputs.version }}"
           IS_PRERELEASE=false
@@ -170,8 +172,20 @@ jobs:
           if [ -z "$PREV_TAG" ]; then
             echo "body=Initial release" >> "$GITHUB_OUTPUT"
           else
-            LOG=$(git log --no-merges --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" -- . ':!test/')
-            CONTRIBUTORS=$(git log --no-merges --pretty=format:"%an" "${PREV_TAG}..HEAD" -- . ':!test/' | sort -u | sed 's/^/- /')
+            LOG=""
+            LOGINS=""
+            while IFS=$'\t' read -r sha subject; do
+              login=$(gh api "repos/${{ github.repository }}/commits/${sha}" --jq '.author.login // empty')
+              if [ -n "$login" ]; then
+                LOG="${LOG}- ${subject} (${sha:0:7}, @${login})"$'\n'
+                LOGINS="${LOGINS}${login}"$'\n'
+              else
+                LOG="${LOG}- ${subject} (${sha:0:7})"$'\n'
+              fi
+            done < <(git log --no-merges --pretty=format:"%H%x09%s" "${PREV_TAG}..HEAD" -- . ':!test/')
+
+            CONTRIBUTORS=$(printf '%s' "$LOGINS" | grep -v '^$' | sort -u | sed 's/^/- @/')
+
             {
               echo "body<<CHANGELOG_EOF"
               echo "## Changes since ${PREV_TAG}"
