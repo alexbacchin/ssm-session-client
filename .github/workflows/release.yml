@@ -174,15 +174,28 @@ jobs:
           else
             LOG=""
             LOGINS=""
-            while IFS=$'\t' read -r sha subject; do
-              login=$(gh api "repos/${{ github.repository }}/commits/${sha}" --jq '.author.login // empty')
+            PR_NUMBERS=$(
+              {
+                # merge-commit PRs (regular "Merge pull request #N" merges)
+                git log --merges --pretty=format:"%s" "${PREV_TAG}..HEAD" -- . ':!test/' | grep -oE '#[0-9]+' | tr -d '#'
+                # squash-merged PRs (no merge commit) resolved via the commit's associated PR
+                git log --no-merges --pretty=format:"%H" "${PREV_TAG}..HEAD" -- . ':!test/' | while read -r sha; do
+                  gh api "repos/${{ github.repository }}/commits/${sha}/pulls" --jq '.[].number' 2>/dev/null
+                done
+              } | sort -un
+            )
+
+            while read -r pr_number; do
+              pr_json=$(gh pr view "$pr_number" --repo "${{ github.repository }}" --json title,author 2>/dev/null) || continue
+              title=$(printf '%s' "$pr_json" | jq -r '.title')
+              login=$(printf '%s' "$pr_json" | jq -r '.author.login // empty')
               if [ -n "$login" ]; then
-                LOG="${LOG}- ${subject} (${sha:0:7}, @${login})"$'\n'
+                LOG="${LOG}- ${title} (#${pr_number}, @${login})"$'\n'
                 LOGINS="${LOGINS}${login}"$'\n'
               else
-                LOG="${LOG}- ${subject} (${sha:0:7})"$'\n'
+                LOG="${LOG}- ${title} (#${pr_number})"$'\n'
               fi
-            done < <(git log --no-merges --pretty=format:"%H%x09%s" "${PREV_TAG}..HEAD" -- . ':!test/')
+            done <<< "$PR_NUMBERS"
 
             CONTRIBUTORS=$(printf '%s' "$LOGINS" | grep -v '^$' | sort -u | sed 's/^/- @/')
 
