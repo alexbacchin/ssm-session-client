@@ -51,3 +51,9 @@ variable "windows_instance_type" {
   type        = string
   default     = "t3.medium"
 }
+
+variable "create_shell_document" {
+  description = "Create a custom Session Manager document for shell --document-name/--parameter tests."
+  type        = bool
+  default     = true
+}

@@ -49,6 +49,11 @@ output "rdp_key_pair_file" {
   sensitive   = true
 }
 
+output "shell_document_name" {
+  description = "Name of the custom Session document for shell tests (empty if create_shell_document=false)."
+  value       = var.create_shell_document ? aws_ssm_document.test_shell[0].name : ""
+}
+
 # Write a flat JSON file consumed by the Go acceptance tests.
 resource "local_file" "outputs_json" {
   filename        = "${path.module}/outputs.json"
@@ -64,5 +69,6 @@ resource "local_file" "outputs_json" {
     kms_key_arn          = var.create_kms_key ? aws_kms_key.test[0].arn : ""
     windows_instance_id  = var.create_windows_instance ? aws_instance.windows_test[0].id : ""
     rdp_key_pair_file    = var.create_windows_instance ? local_sensitive_file.rdp_private_key[0].filename : ""
+    shell_document_name  = var.create_shell_document ? aws_ssm_document.test_shell[0].name : ""
   })
 }
