@@ -36,6 +36,9 @@ type InfraOutputs struct {
 	// Windows / RDP fields (populated when create_windows_instance=true).
 	WindowsInstanceID string `json:"windows_instance_id"`
 	RDPKeyPairFile    string `json:"rdp_key_pair_file"`
+	// ShellDocumentName is the custom Session document used by the shell
+	// --document-name / --parameter tests (create_shell_document=true).
+	ShellDocumentName string `json:"shell_document_name"`
 }
 
 var (
@@ -112,6 +115,7 @@ func infraFromEnv() InfraOutputs {
 		KMSKeyARN:         os.Getenv("TF_OUTPUT_KMS_KEY_ARN"),
 		WindowsInstanceID: os.Getenv("TF_OUTPUT_WINDOWS_INSTANCE_ID"),
 		RDPKeyPairFile:    os.Getenv("TF_OUTPUT_RDP_KEY_PAIR_FILE"),
+		ShellDocumentName: os.Getenv("TF_OUTPUT_SHELL_DOCUMENT_NAME"),
 	}
 }
 
@@ -217,6 +221,17 @@ func requireEnv(t *testing.T, key string) string {
 		t.Skipf("env var %s not set; skipping test", key)
 	}
 	return v
+}
+
+// writeTempConfig writes a YAML config file into the test's temp dir and returns
+// its path, for tests that exercise config-file (rather than flag) settings.
+func writeTempConfig(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), ".ssm-session-client.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+	return path
 }
 
 // pushKeyViaSDK pushes a public key to EC2 Instance Connect using the AWS SDK

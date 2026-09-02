@@ -93,6 +93,8 @@ make -C test/scripts acceptance-destroy
 
 `acceptance-destroy` must always be run after `acceptance-run-local`, even if the tests fail, to avoid leaving AWS infrastructure running.
 
+The `create_shell_document` Terraform variable (default `true`) provisions a custom Session Manager document used by the `shell --document-name` / `--parameter` acceptance tests. Those tests skip when `shell_document_name` is absent from `outputs.json`.
+
 ## Documentation Website
 
 A static documentation site lives in `docs/` and is published to GitHub Pages.

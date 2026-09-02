@@ -30,6 +30,9 @@ Built for restricted environments (AppLocker, AirLock, Manage Engine) and comple
 # Interactive shell session
 ssm-session-client shell i-0abc1234def56789
 
+# Shell session using a specific SSM document and its parameters
+ssm-session-client shell i-0abc1234def56789 --document-name MyShellDoc --parameter linuxcmd=top
+
 # SSH direct (no external SSH client needed)
 ssm-session-client ssh-direct ec2-user@i-0abc1234def56789
 

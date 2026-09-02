@@ -254,3 +254,45 @@ resource "aws_instance" "windows_test" {
     OS          = "Windows"
   }
 }
+
+# ---------------------------------------------------------------------------
+# Custom Session Manager document for shell --document-name / --parameter tests.
+#
+# schemaVersion 1.0 with sessionType InteractiveCommands is the only session
+# document type that accepts caller-supplied parameters, which is what the
+# --parameter flag needs to exercise. The command echoes the parameter value so
+# the test can assert the value made it through to the instance.
+# ---------------------------------------------------------------------------
+resource "aws_ssm_document" "test_shell" {
+  count           = var.create_shell_document ? 1 : 0
+  name            = "${var.name_prefix}-shell-doc"
+  document_type   = "Session"
+  document_format = "JSON"
+
+  content = jsonencode({
+    schemaVersion = "1.0"
+    description   = "Acceptance-test session document with a caller-supplied parameter."
+    sessionType   = "InteractiveCommands"
+    parameters = {
+      linuxcmd = {
+        type        = "String"
+        description = "Command echoed back to prove parameter delivery."
+        default     = "echo default-parameter-value"
+        # Permit only the safe echo commands the acceptance tests use.
+        allowedPattern = "^echo [a-zA-Z0-9_-]+$"
+      }
+    }
+    properties = {
+      linux = {
+        commands      = "{{linuxcmd}}"
+        runAsElevated = false
+      }
+    }
+  })
+
+  tags = {
+    Name        = "${var.name_prefix}-shell-doc"
+    Environment = var.environment
+    TestRole    = "shell-document"
+  }
+}

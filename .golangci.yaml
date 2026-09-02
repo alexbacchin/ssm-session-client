@@ -1,61 +1,56 @@
+version: "2"
 run:
   concurrency: 4
-  timeout: 5m
-
-linters-settings:
-  funlen:
-    lines: 75
-    statements: 50
-  gocognit:
-    min-complexity: 15
-  gocyclo:
-    min-complexity: 15
-  revive:
-    rules:
-      - name: exported
-        severity: warning
-  lll:
-    line-length: 132
-
 linters:
-  disable-all: true
+  default: none
   enable:
-    # These are the default linters
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - typecheck
-    - unused
-
-    # These are some of the not enabled by default linters
     - bodyclose
-    #- depguard
-    #- dogsled
-    #- dupl
-    #- exhaustive
+    - errcheck
     - funlen
-    #- gochecknoinits
-    #- goconst
-    - gocritic
     - gocognit
+    - gocritic
     - gocyclo
     - godot
-    - gofmt
-    #- goimports
-    - revive
-    #- gomnd
-    #- goprintffuncname
     - gosec
-    #- interfacer
-    #- lll
-    #- misspell
-    #- nakedret
+    - govet
+    - ineffassign
     - noctx
-    #- nolintlint
-    #- prealloc
-    #- rowserrcheck
+    - revive
+    - staticcheck
     - unconvert
     - unparam
-    #- whitespace
+    - unused
+  settings:
+    funlen:
+      lines: 75
+      statements: 50
+    gocognit:
+      min-complexity: 15
+    gocyclo:
+      min-complexity: 15
+    lll:
+      line-length: 132
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

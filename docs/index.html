@@ -553,6 +553,10 @@ Get-AuthenticodeSignature .\ssm-session-client.exe
             <tr><td>Disable Instance Connect even if set in config</td><td><code>ssh-direct.no-instance-connect</code></td><td><code>SSC_SSH_DIRECT_NO_INSTANCE_CONNECT</code></td><td>—</td></tr>
             <tr><td>Default SSH username (avoids needing <code>user@</code> in target or <code>~/.ssh/config</code>)</td><td><code>ssh-direct.ssh-user</code></td><td><code>SSC_SSH_DIRECT_SSH_USER</code></td><td>—</td></tr>
             <tr><td>Default SSH port (avoids needing <code>:port</code> in target or <code>~/.ssh/config</code>)</td><td><code>ssh-direct.ssh-port</code></td><td><code>SSC_SSH_DIRECT_SSH_PORT</code></td><td>—</td></tr>
+            <tr><td colspan="4" style="background:#f5f5f5;font-weight:600;padding:6px 12px;">shell options (nested under <code>shell:</code> in config file)</td></tr>
+            <tr><td>SSM document to run for the session</td><td><code>shell.document-name</code></td><td><code>SSC_SHELL_DOCUMENT_NAME</code></td><td>—</td></tr>
+            <tr><td>SSM document parameters (config file only)</td><td><code>shell.parameters</code></td><td>—</td><td>—</td></tr>
+            <tr><td>SSM document parameter (CLI flag, repeatable)</td><td><code>--parameter key=value</code></td><td>—</td><td>—</td></tr>
           </tbody>
         </table>
       </div>
@@ -789,6 +793,35 @@ ssm-session-client port-forwarding  devbox:443 8443</code></pre>
       </p>
 <pre><code class="language-bash">ssm-session-client shell i-0bdb4f892de4bb54c
 ssm-session-client shell i-0bdb4f892de4bb54c --config=~/.ssm-session-client.yaml</code></pre>
+      <h3>SSM documents and parameters</h3>
+      <p>
+        By default AWS applies the account/region default shell document. Use
+        <code>--document-name</code> to run a specific SSM document, and
+        <code>--parameter key=value</code> to supply the parameters that document declares.
+        Repeat <code>--parameter</code> with the same key to build a multi-value parameter.
+      </p>
+<pre><code class="language-bash"># Run a specific document
+ssm-session-client shell i-0bdb4f892de4bb54c --document-name SSM-SessionManagerRunShell
+
+# Custom document with parameters
+ssm-session-client shell i-0bdb4f892de4bb54c \
+  --document-name MyShellDoc \
+  --parameter linuxcmd=top \
+  --parameter runAsUser=ec2-user
+
+# Repeat a key for a multi-value parameter
+ssm-session-client shell i-0bdb4f892de4bb54c --parameter cmd=uptime --parameter cmd=whoami</code></pre>
+      <p>The same settings can be set in the config file:</p>
+<pre><code class="language-yaml">shell:
+  document-name: MyShellDoc
+  parameters:
+    linuxcmd: ["top"]
+    runAsUser: ["ec2-user"]</code></pre>
+      <div class="callout callout-info">
+        <strong>Precedence:</strong> <code>--parameter</code> values are appended to any
+        parameters defined in the config file, while <code>--document-name</code> overrides
+        the config file value.
+      </div>
       <p>
         On Windows, the shell command supports virtual terminal processing with ANSI escape
         sequences for proper colour and formatting in remote shells.
