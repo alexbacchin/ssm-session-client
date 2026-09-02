@@ -17,6 +17,12 @@ type SSHDirectConfig struct {
 	SSHPort            int    `mapstructure:"ssh-port"`
 }
 
+// ShellConfig holds flags that are only used by the shell command.
+type ShellConfig struct {
+	DocumentName string              `mapstructure:"document-name"`
+	Parameters   map[string][]string `mapstructure:"parameters"`
+}
+
 type Config struct {
 	AWSProfile             string                 `mapstructure:"aws-profile"`
 	AWSRegion              string                 `mapstructure:"aws-region"`
@@ -35,6 +41,7 @@ type Config struct {
 	MaxReconnects          int                    `mapstructure:"max-reconnects"`
 	PortForwardKbps        int                    `mapstructure:"port-forward-kbps"`
 	SSHDirect              SSHDirectConfig        `mapstructure:"ssh-direct"`
+	Shell                  ShellConfig            `mapstructure:"shell"`
 	RDPPort                int                    `mapstructure:"rdp-port"`
 	RDPLocalPort           int                    `mapstructure:"rdp-local-port"`
 	RDPGetPassword         bool                   `mapstructure:"rdp-get-password"`
@@ -43,10 +50,10 @@ type Config struct {
 	Aliases                map[string]TargetAlias `mapstructure:"aliases"`
 }
 
-// create a singleton config object
+// create a singleton config object.
 var singleFlags Config
 
-// return a pointer to the config object
+// return a pointer to the config object.
 func Flags() *Config {
 	return &singleFlags
 }

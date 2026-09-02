@@ -18,7 +18,7 @@ import (
 // instance before handing control of the terminal to the user.
 func ShellSession(cfg aws.Config, target string, initCmd ...io.Reader) error {
 	c := new(datachannel.SsmDataChannel)
-	if err := c.Open(cfg, &ssm.StartSessionInput{Target: aws.String(target)}, &datachannel.SSMMessagesResover{
+	if err := c.Open(cfg, shellSessionInput(target), &datachannel.SSMMessagesResover{
 		Endpoint: config.Flags().SSMMessagesVpcEndpoint,
 	}); err != nil {
 		return err
@@ -67,5 +67,22 @@ func updateTermSize(c datachannel.DataChannel) error {
 // ShellPluginSession delegates the execution of the SSM shell session to the AWS-managed session manager plugin code,
 // bypassing this libraries internal websocket code and session management.
 func ShellPluginSession(cfg aws.Config, target string) error {
-	return PluginSession(cfg, &ssm.StartSessionInput{Target: aws.String(target)})
+	return PluginSession(cfg, shellSessionInput(target))
+}
+
+// shellSessionInput builds the StartSession API input for a shell session, applying the
+// optional SSM document name and document parameters from the configuration. Leaving
+// DocumentName unset lets AWS apply the account/region default shell document.
+func shellSessionInput(target string) *ssm.StartSessionInput {
+	in := &ssm.StartSessionInput{Target: aws.String(target)}
+
+	if name := config.Flags().Shell.DocumentName; name != "" {
+		in.DocumentName = aws.String(name)
+	}
+
+	if params := config.Flags().Shell.Parameters; len(params) > 0 {
+		in.Parameters = params
+	}
+
+	return in
 }
