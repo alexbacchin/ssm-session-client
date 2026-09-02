@@ -154,6 +154,23 @@ INLINE_POLICY_DOCUMENT=$(cat <<EOF
       "Resource": "*"
     },
     {
+      "Sid": "SSMDocumentTerraformManage",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:CreateDocument",
+        "ssm:DeleteDocument",
+        "ssm:DescribeDocument",
+        "ssm:GetDocument",
+        "ssm:ListDocuments",
+        "ssm:UpdateDocument",
+        "ssm:UpdateDocumentDefaultVersion",
+        "ssm:DescribeDocumentPermission",
+        "ssm:AddTagsToResource",
+        "ssm:RemoveTagsFromResource"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "SSMMessages",
       "Effect": "Allow",
       "Action": [
@@ -200,7 +217,7 @@ INLINE_POLICY_DOCUMENT=$(cat <<EOF
       "Sid": "EC2InstanceConnect",
       "Effect": "Allow",
       "Action": ["ec2-instance-connect:SendSSHPublicKey"],
-      "Resource": "arn:aws:ec2:${AWS_REGION}:${AWS_ACCOUNT_ID}:instance/*"
+      "Resource": "arn:aws:ec2:*:${AWS_ACCOUNT_ID}:instance/*"
     },
     {
       "Sid": "IAMTerraformManage",
