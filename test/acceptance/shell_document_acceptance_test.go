@@ -30,12 +30,22 @@ import (
 // travelled all the way into the StartSession API call, which is exactly what the
 // --document-name flag is supposed to do.
 
-const (
-	// shellDocTimeout bounds a shell session started only to inspect its metadata.
-	shellDocTimeout = 60 * time.Second
-	// defaultShellDocument is the document AWS applies when none is requested.
-	defaultShellDocument = "SSM-SessionManagerRunShell"
-)
+// shellDocTimeout bounds a shell session started only to inspect its metadata.
+const shellDocTimeout = 60 * time.Second
+
+// requireShellDocument returns the Terraform-provisioned Session document name.
+//
+// Tests deliberately do not hardcode SSM-SessionManagerRunShell. Despite the name it
+// is not an AWS-managed document: it is owned by the account and only exists in a
+// region once someone has saved Session Manager preferences there, so depending on it
+// passes in one region and fails with InvalidDocument in another.
+func requireShellDocument(t *testing.T, i InfraOutputs) string {
+	t.Helper()
+	if i.ShellDocumentName == "" {
+		t.Skip("shell_document_name not set in infra outputs (set create_shell_document=true in Terraform)")
+	}
+	return i.ShellDocumentName
+}
 
 // spawnShell starts the shell command in the background with stdin held open, so the
 // session stays alive long enough to be observed via DescribeSessions. It returns a
@@ -189,13 +199,14 @@ func TestShellDefaultDocument(t *testing.T) {
 // reading the document name back from AWS.
 func TestShellWithDocumentName(t *testing.T) {
 	i := infra(t)
+	doc := requireShellDocument(t, i)
 	waitForSSMReady(t, i.InstanceID)
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
 	if got := startShellSessionAndReadDocument(t, i.InstanceID, os.DevNull,
-		"shell", i.InstanceID, "--document-name", defaultShellDocument); got != defaultShellDocument {
-		t.Errorf("session document = %q, want %q", got, defaultShellDocument)
+		"shell", i.InstanceID, "--document-name", doc); got != doc {
+		t.Errorf("session document = %q, want %q", got, doc)
 	}
 }
 
@@ -203,16 +214,14 @@ func TestShellWithDocumentName(t *testing.T) {
 // --document-name is used for the session.
 func TestShellWithCustomDocument(t *testing.T) {
 	i := infra(t)
-	if i.ShellDocumentName == "" {
-		t.Skip("shell_document_name not set in infra outputs (set create_shell_document=true in Terraform)")
-	}
+	doc := requireShellDocument(t, i)
 	waitForSSMReady(t, i.InstanceID)
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
 	if got := startShellSessionAndReadDocument(t, i.InstanceID, os.DevNull,
-		"shell", i.InstanceID, "--document-name", i.ShellDocumentName); got != i.ShellDocumentName {
-		t.Errorf("session document = %q, want %q", got, i.ShellDocumentName)
+		"shell", i.InstanceID, "--document-name", doc); got != doc {
+		t.Errorf("session document = %q, want %q", got, doc)
 	}
 }
 
@@ -222,19 +231,17 @@ func TestShellWithCustomDocument(t *testing.T) {
 // proves the parameter was transmitted and validated server-side.
 func TestShellWithDocumentParameters(t *testing.T) {
 	i := infra(t)
-	if i.ShellDocumentName == "" {
-		t.Skip("shell_document_name not set in infra outputs (set create_shell_document=true in Terraform)")
-	}
+	doc := requireShellDocument(t, i)
 	waitForSSMReady(t, i.InstanceID)
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
 	if got := startShellSessionAndReadDocument(t, i.InstanceID, os.DevNull,
 		"shell", i.InstanceID,
-		"--document-name", i.ShellDocumentName,
+		"--document-name", doc,
 		"--parameter", "linuxcmd=echo "+shellMarker,
-	); got != i.ShellDocumentName {
-		t.Errorf("session document = %q, want %q", got, i.ShellDocumentName)
+	); got != doc {
+		t.Errorf("session document = %q, want %q", got, doc)
 	}
 }
 
@@ -244,15 +251,13 @@ func TestShellWithDocumentParameters(t *testing.T) {
 // start successfully.
 func TestShellRejectsInvalidParameter(t *testing.T) {
 	i := infra(t)
-	if i.ShellDocumentName == "" {
-		t.Skip("shell_document_name not set in infra outputs (set create_shell_document=true in Terraform)")
-	}
+	doc := requireShellDocument(t, i)
 	waitForSSMReady(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
 	// "rm -rf /" does not match the document's allowedPattern of "^echo [a-zA-Z0-9_-]+$".
 	_, stderr, code := runCmd(t, shellDocTimeout, "shell", i.InstanceID,
-		"--document-name", i.ShellDocumentName,
+		"--document-name", doc,
 		"--parameter", "linuxcmd=rm -rf /",
 	)
 	if code == 0 {
@@ -290,15 +295,16 @@ func TestShellUnknownDocumentFails(t *testing.T) {
 // in a YAML config file rather than passed as a flag.
 func TestShellDocumentFromConfigFile(t *testing.T) {
 	i := infra(t)
+	doc := requireShellDocument(t, i)
 	waitForSSMReady(t, i.InstanceID)
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
 	// The document name comes from the config file, with no --document-name flag.
-	cfgPath := writeTempConfig(t, "shell:\n  document-name: "+defaultShellDocument+"\n")
+	cfgPath := writeTempConfig(t, "shell:\n  document-name: "+doc+"\n")
 
 	if got := startShellSessionAndReadDocument(t, i.InstanceID, cfgPath,
-		"shell", i.InstanceID); got != defaultShellDocument {
-		t.Errorf("session document from config file = %q, want %q", got, defaultShellDocument)
+		"shell", i.InstanceID); got != doc {
+		t.Errorf("session document from config file = %q, want %q", got, doc)
 	}
 }
