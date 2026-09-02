@@ -4,8 +4,10 @@ package acceptance
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,19 +37,22 @@ const (
 	defaultShellDocument = "SSM-SessionManagerRunShell"
 )
 
-// startShellSession runs the shell command in the background with stdin held open,
-// so the session stays alive long enough to be observed via DescribeSessions. The
-// process is stopped via t.Cleanup when the test finishes.
-func startShellSession(t *testing.T, args ...string) {
+// spawnShell starts the shell command in the background with stdin held open, so the
+// session stays alive long enough to be observed via DescribeSessions. It returns a
+// stop func and a getter for whatever the process wrote to stderr.
+func spawnShell(t *testing.T, configPath string, args ...string) (stop func(), stderr func() string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), shellDocTimeout)
 
 	fullArgs := append([]string{
-		"--config", "/dev/null",
+		"--config", configPath,
 		"--log-level", "debug",
 		"--aws-region", globalInfraOutputs.AWSRegion,
 	}, args...)
 	cmd := exec.CommandContext(ctx, binaryPath, fullArgs...) //nolint:gosec
+
+	var errBuf lockedBuffer
+	cmd.Stderr = &errBuf
 
 	// An open stdin pipe that is never written to keeps the process from exiting
 	// immediately on EOF, giving DescribeSessions time to observe the session.
@@ -61,20 +66,74 @@ func startShellSession(t *testing.T, args ...string) {
 		t.Fatalf("start shell: %v", err)
 	}
 
-	t.Cleanup(func() {
-		stdin.Close() //nolint:errcheck
-		cancel()
-		_ = cmd.Wait()
-	})
+	var stopOnce sync.Once
+	stop = func() {
+		stopOnce.Do(func() {
+			stdin.Close() //nolint:errcheck
+			cancel()
+			_ = cmd.Wait()
+		})
+	}
+	t.Cleanup(stop)
+	return stop, errBuf.String
+}
+
+// lockedBuffer is a minimal concurrency-safe buffer: exec writes to it from its own
+// goroutine while the test reads it, which would otherwise race.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// startShellSessionAndReadDocument starts a shell session and returns the DocumentName
+// AWS recorded for it.
+//
+// SSM session setup is transient: StartSession can fail with TargetNotConnected shortly
+// after an agent comes online, or with a handshake EOF when the agent is at its session
+// limit. The CLI exits on those, so no session is ever created and the lookup below has
+// nothing to find. The whole start-then-observe cycle is therefore retried, mirroring
+// runCmdWithRetry which exists for the same reason.
+func startShellSessionAndReadDocument(t *testing.T, instanceID, configPath string, args ...string) string {
+	t.Helper()
+
+	const attempts = 3
+	for attempt := 1; ; attempt++ {
+		before := captureActiveSessions(t, instanceID)
+		stop, stderr := spawnShell(t, configPath, args...)
+
+		doc, ok := findSessionDocument(t, instanceID, before)
+		if ok {
+			return doc
+		}
+		stop()
+
+		if attempt >= attempts {
+			t.Fatalf("no SSM session observed after %d attempts; last stderr:\n%s", attempts, stderr())
+		}
+		t.Logf("attempt %d: no session observed, retrying. stderr:\n%s", attempt, stderr())
+		time.Sleep(5 * time.Second)
+	}
 }
 
 // findSessionDocument polls DescribeSessions until a session appears on the instance
 // that was not present in `before`, and returns the DocumentName AWS recorded for it.
 //
-// AWS leaves DocumentName unset (null) when StartSession was called without an
-// explicit DocumentName, so an empty return means "session created, no document
-// recorded" — which is distinct from "no session found" (a fatal error).
-func findSessionDocument(t *testing.T, instanceID string, before sessionSet) string {
+// AWS leaves DocumentName unset (null) when StartSession was called without an explicit
+// DocumentName, so ("", true) means "session created, no document recorded" — distinct
+// from ("", false), which means no session ever appeared and the caller should retry.
+func findSessionDocument(t *testing.T, instanceID string, before sessionSet) (string, bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -85,7 +144,7 @@ func findSessionDocument(t *testing.T, instanceID string, before sessionSet) str
 	}
 	client := ssm.NewFromConfig(cfg)
 
-	deadline := time.Now().Add(40 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		out, err := client.DescribeSessions(ctx, &ssm.DescribeSessionsInput{
 			State: ssmtypes.SessionStateActive,
@@ -100,13 +159,12 @@ func findSessionDocument(t *testing.T, instanceID string, before sessionSet) str
 				}
 				doc := aws.ToString(s.DocumentName)
 				t.Logf("session %s -> document %q", *s.SessionId, doc)
-				return doc
+				return doc, true
 			}
 		}
 		time.Sleep(2 * time.Second)
 	}
-	t.Fatal("no new SSM session observed; cannot read its document name")
-	return ""
+	return "", false
 }
 
 // TestShellDefaultDocument is the baseline for the other tests in this file: with
@@ -119,10 +177,8 @@ func TestShellDefaultDocument(t *testing.T) {
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
-	before := captureActiveSessions(t, i.InstanceID)
-	startShellSession(t, "shell", i.InstanceID)
-
-	if got := findSessionDocument(t, i.InstanceID, before); got != "" {
+	if got := startShellSessionAndReadDocument(t, i.InstanceID, os.DevNull,
+		"shell", i.InstanceID); got != "" {
 		// An account may pin a default session document; that is not a failure, but
 		// it does weaken the baseline, so make it visible in the test log.
 		t.Logf("note: account records a default session document of %q", got)
@@ -137,10 +193,8 @@ func TestShellWithDocumentName(t *testing.T) {
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
-	before := captureActiveSessions(t, i.InstanceID)
-	startShellSession(t, "shell", i.InstanceID, "--document-name", defaultShellDocument)
-
-	if got := findSessionDocument(t, i.InstanceID, before); got != defaultShellDocument {
+	if got := startShellSessionAndReadDocument(t, i.InstanceID, os.DevNull,
+		"shell", i.InstanceID, "--document-name", defaultShellDocument); got != defaultShellDocument {
 		t.Errorf("session document = %q, want %q", got, defaultShellDocument)
 	}
 }
@@ -156,10 +210,8 @@ func TestShellWithCustomDocument(t *testing.T) {
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
-	before := captureActiveSessions(t, i.InstanceID)
-	startShellSession(t, "shell", i.InstanceID, "--document-name", i.ShellDocumentName)
-
-	if got := findSessionDocument(t, i.InstanceID, before); got != i.ShellDocumentName {
+	if got := startShellSessionAndReadDocument(t, i.InstanceID, os.DevNull,
+		"shell", i.InstanceID, "--document-name", i.ShellDocumentName); got != i.ShellDocumentName {
 		t.Errorf("session document = %q, want %q", got, i.ShellDocumentName)
 	}
 }
@@ -177,13 +229,11 @@ func TestShellWithDocumentParameters(t *testing.T) {
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
-	before := captureActiveSessions(t, i.InstanceID)
-	startShellSession(t, "shell", i.InstanceID,
+	if got := startShellSessionAndReadDocument(t, i.InstanceID, os.DevNull,
+		"shell", i.InstanceID,
 		"--document-name", i.ShellDocumentName,
 		"--parameter", "linuxcmd=echo "+shellMarker,
-	)
-
-	if got := findSessionDocument(t, i.InstanceID, before); got != i.ShellDocumentName {
+	); got != i.ShellDocumentName {
 		t.Errorf("session document = %q, want %q", got, i.ShellDocumentName)
 	}
 }
@@ -244,31 +294,11 @@ func TestShellDocumentFromConfigFile(t *testing.T) {
 	terminateAllSessions(t, i.InstanceID)
 	registerSessionLeakCheck(t, i.InstanceID)
 
+	// The document name comes from the config file, with no --document-name flag.
 	cfgPath := writeTempConfig(t, "shell:\n  document-name: "+defaultShellDocument+"\n")
 
-	before := captureActiveSessions(t, i.InstanceID)
-	ctx, cancel := context.WithTimeout(context.Background(), shellDocTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, binaryPath, //nolint:gosec
-		"--config", cfgPath,
-		"--aws-region", globalInfraOutputs.AWSRegion,
-		"shell", i.InstanceID,
-	)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatalf("stdin pipe: %v", err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start shell: %v", err)
-	}
-	t.Cleanup(func() {
-		stdin.Close() //nolint:errcheck
-		cancel()
-		_ = cmd.Wait()
-	})
-
-	if got := findSessionDocument(t, i.InstanceID, before); got != defaultShellDocument {
+	if got := startShellSessionAndReadDocument(t, i.InstanceID, cfgPath,
+		"shell", i.InstanceID); got != defaultShellDocument {
 		t.Errorf("session document from config file = %q, want %q", got, defaultShellDocument)
 	}
 }
